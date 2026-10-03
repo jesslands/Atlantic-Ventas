@@ -1,7 +1,5 @@
-import Section from "../components/Section";
+import Asesores from "../components/dashboard/Asesores";
 
 export default function Page() {
-  return (
-    <Section title="Asesores" description="Cartera de asesores, clientes asignados y desempeño." />
-  );
+  return <Asesores />;
 }
