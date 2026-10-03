@@ -90,7 +90,12 @@ before(async () => {
   await sembrar();
   // detached: next arranca un hijo next-server; sin grupo de procesos queda huerfano.
   servidor = spawn("node_modules/.bin/next", ["start", "--port", String(PUERTO)], {
-    env: { ...process.env, DATABASE_URL, PORT: String(PUERTO), NODE_ENV: "production" },
+    // TRUST_PROXY=true simula el despliegue real (detras de un proxy reverso
+    // de confianza): solo asi x-forwarded-for es una identidad valida para el
+    // rate limit (ver PT-01 en investigacion/Pentesting.md). Sin esta bandera
+    // -el default seguro cuando no hay proxy delante- todas las peticiones
+    // comparten un unico cupo sin importar la cabecera, por diseno.
+    env: { ...process.env, DATABASE_URL, PORT: String(PUERTO), NODE_ENV: "production", TRUST_PROXY: "true" },
     stdio: "ignore",
     detached: true,
   });

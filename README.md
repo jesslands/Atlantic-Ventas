@@ -45,7 +45,8 @@ Variables de entorno (`.env.example`, ninguna con secretos reales):
 |-------------------|--------------------------------------|-----------------------------------|
 | `DATABASE_URL`    | `postgres://atlantic:atlantic@localhost:5432/atlantic` | Conexión a Postgres (compose la sobrescribe con el host `db`) |
 | `DB_POOL_MAX`     | `10`                                 | Conexiones máximas del pool       |
-| `RATE_LIMIT_MAX`  | `120`                                | Peticiones/minuto/IP en `/api`    |
+| `RATE_LIMIT_MAX`  | `120`                                | Peticiones/minuto/identidad en `/api` |
+| `TRUST_PROXY`     | `false`                              | `true` solo si hay un proxy reverso de confianza delante (ver [Seguridad](#seguridad)) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` / `POSTGRES_PORT` | `atlantic` / `atlantic` / `atlantic` / `5432` | Credenciales de la base;compose las arma en `DATABASE_URL` |
 | `APP_PORT`        | `3000`                               | Puerto del API en el host          |
 
@@ -135,21 +136,38 @@ y queda en `pipeline/reporte-limpieza.json` como `{ iso: "2026-01-01", etiqueta:
 
 ## Seguridad
 
+> Esta sección se auditó con una prueba de seguridad ofensiva completa:
+> [`investigacion/Pentesting.md`](investigacion/Pentesting.md) (hallazgos originales)
+> y [`investigacion/Pentesting-Post.md`](investigacion/Pentesting-Post.md) (reverificación
+> tras el parche).
+
 - **SQL parametrizado**: todo valor de la query string viaja como `$1, $2, ...`; sedes
   y asesores entran como *arrays* (`= ANY($1::text[])`). Ningún valor del usuario se
   concatena en el texto SQL, así que no hay superficie de inyección. Los nombres de
-  columna del `ORDER BY` salen de una lista blanca (`leerOrden`) y las direcciones de
+  columna del `ORDER BY` salen de una lista blanca (`leerOrden`, verificada con
+  `Object.hasOwn` para no heredar propiedades de `Object.prototype`) y las direcciones de
   orden son un `asc|desc` cerrado. La búsqueda de clientes usa `strpos(lower(nombre), lower($1))`,
   sin comodines que el usuario pueda usar para barrer la tabla.
-- **Helmet** en `proxy.ts` (Node runtime, `matcher: /api/:path*`): HSTS, `nosniff`,
-  `X-Frame-Options`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`, sin fuga de `X-Powered-By`.
-- **Antispam**: límite de 120 peticiones/minuto/IP con ventana fija, respuesta `429` y
-  cabecera `X-RateLimit-Limit`. Es un contador **en memoria por instancia**; si el API
-  corre en varias réplicas, hay que moverlo a Redis/Upstash (queda anotado en el código).
+- **Helmet** en `proxy.ts` (`matcher` cubre toda la app, no solo `/api`): HSTS, `nosniff`,
+  `X-Frame-Options`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`, sin fuga de `X-Powered-By`
+  &mdash; también en el dashboard HTML, no únicamente en las respuestas JSON.
+- **Antispam**: límite de 120 peticiones/minuto por identidad, con ventana fija, respuesta
+  `429` y cabecera `X-RateLimit-Limit`. Esa identidad **solo** viene de `x-forwarded-for`/
+  `x-real-ip` cuando `TRUST_PROXY=true`; esas cabeceras las controla el cliente, así que
+  confiar en ellas sin un proxy reverso real delante deja el límite sin efecto (cualquiera
+  lo evade rotando el valor). Sin `TRUST_PROXY` (el default, y lo que usa `docker-compose.yml`
+  tal cual porque no trae proxy delante), todo el tráfico directo comparte un único cupo.
+  Es, además, un contador **en memoria por instancia** con purga perezosa de entradas
+  vencidas; si el API corre en varias réplicas, hay que moverlo a Redis/Upstash (queda
+  anotado en el código).
 - Sin autenticación: la API sirve cifras de venta internas. Si se expone a internet,
-  añadir autenticación **antes** que el rate limit (un límite por IP no es control de acceso).
+  añadir autenticación **antes** que el rate limit (un límite por identidad no es control
+  de acceso).
 - CSP queda desactivada a propósito: el API responde JSON y las páginas necesitan los
   scripts inline de Next; se define en la rama de UI con los `nonce` correctos.
+- Paginación de `/clientes` con tope de `pagina*porPagina` acotado (máximo 2.000 páginas
+  de hasta 100), para que un `OFFSET` grande no amplifique el costo de la consulta contra
+  Postgres.
 
 ---
 

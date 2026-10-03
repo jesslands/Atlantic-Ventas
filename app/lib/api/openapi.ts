@@ -195,7 +195,7 @@ export const openapi = {
         summary: "Listado paginado con busqueda y ordenamiento",
         parameters: [
           ...PARAMETROS_FILTRO,
-          { name: "pagina", in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
+          { name: "pagina", in: "query", schema: { type: "integer", minimum: 1, maximum: 2000, default: 1 } },
           { name: "porPagina", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
           { name: "q", in: "query", schema: { type: "string", maxLength: 100 }, description: "Busqueda parcial por nombre." },
           {

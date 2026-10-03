@@ -15,7 +15,11 @@ export type OrdenCliente = keyof typeof ORDENES_CLIENTE;
 
 export const leerOrden = (valor?: string): OrdenCliente => {
   const orden = (valor ?? "neto") as OrdenCliente;
-  if (!(orden in ORDENES_CLIENTE)) {
+  // Object.hasOwn (no `in`): `in` tambien ve la cadena de prototipos, asi que
+  // __proto__/constructor/toString pasaban como si fueran valores validos y
+  // su valor heredado se colaba crudo en el ORDER BY (ver PT-02 en
+  // investigacion/Pentesting.md).
+  if (!Object.hasOwn(ORDENES_CLIENTE, orden)) {
     throw peticionInvalida(
       `"orden" debe ser uno de: ${Object.keys(ORDENES_CLIENTE).join(", ")}.`,
       { orden: valor },

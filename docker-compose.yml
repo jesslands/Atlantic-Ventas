@@ -7,7 +7,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atlantic}
       POSTGRES_DB: ${POSTGRES_DB:-atlantic}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Solo loopback (PT-08 en investigacion/Pentesting.md): el servicio "app"
+      # llega a "db" por la red interna de compose sin pasar por este puerto
+      # publicado; abrirlo a 0.0.0.0 solo hace falta si algo FUERA del host
+      # necesita de verdad la base.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

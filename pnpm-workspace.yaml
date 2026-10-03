@@ -2,3 +2,8 @@ allowBuilds:
   sharp: false
   unrs-resolver: false
   esbuild: true
+
+# uuid@8.3.2 (transitiva de exceljs) tiene un advisory moderado de bounds-check
+# en buffers, GHSA-w5hq-g745-h8pq (PT-06 en investigacion/Pentesting.md).
+overrides:
+  uuid: ^11.1.1
