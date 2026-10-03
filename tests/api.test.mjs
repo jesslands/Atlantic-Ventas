@@ -341,3 +341,90 @@ test("GET /api/docs/openapi.json documenta los seis endpoints", async () => {
   ]);
   assert.equal(cuerpo.openapi, "3.1.0");
 });
+
+test("el JSON de cada endpoint cumple el contrato OpenAPI", async () => {
+  const { cuerpo: openapi } = await pedir("/api/docs/openapi.json");
+
+  const tipoDe = (valor) => {
+    if (valor === null) return "null";
+    if (Array.isArray(valor)) return "array";
+    return typeof valor;
+  };
+
+  const valida = (esquema, valor, path = "$") => {
+    if (!esquema || typeof esquema !== "object") return;
+    if (Array.isArray(esquema.type)) {
+      assert.ok(
+        esquema.type.includes(tipoDe(valor)),
+        `${path}: tipo ${tipoDe(valor)} no esta en [${esquema.type.join(", ")}]`,
+      );
+      return;
+    }
+    if (esquema.type === "array") {
+      assert.ok(Array.isArray(valor), `${path}: se esperaba array`);
+      const items = esquema.items ?? {};
+      valor.forEach((item, i) => valida(items, item, `${path}[${i}]`));
+      return;
+    }
+    if (esquema.type === "object") {
+      assert.equal(tipoDe(valor), "object", `${path}: se esperaba objeto`);
+      for (const req of esquema.required ?? []) {
+        assert.ok(
+          valor && Object.prototype.hasOwnProperty.call(valor, req),
+          `${path}: falta campo requerido "${req}"`,
+        );
+      }
+      for (const [clave, subEsquema] of Object.entries(esquema.properties ?? {})) {
+        if (valor && clave in valor) valida(subEsquema, valor[clave], `${path}.${clave}`);
+      }
+      return;
+    }
+    if (esquema.type === "string") {
+      assert.equal(typeof valor, "string", `${path}: se esperaba string`);
+      if (esquema.enum) assert.ok(esquema.enum.includes(valor), `${path}: ${valor} no esta en enum`);
+      return;
+    }
+    if (esquema.type === "integer") {
+      assert.equal(typeof valor, "number", `${path}: se esperaba integer`);
+      return;
+    }
+    if (esquema.type === "number") {
+      assert.equal(typeof valor, "number", `${path}: se esperaba number`);
+      return;
+    }
+  };
+
+  const resolver = (ref, doc) => ref?.startsWith("#/") ? ref.slice(2).split("/").reduce((a, p) => a?.[p], doc) : ref;
+
+  const esquemaDeRespuesta = (path, status) => {
+    const op = openapi.paths[path];
+    assert.ok(op, `OpenAPI no documenta ${path}`);
+    const esquema = op.get?.responses?.[status]?.content?.["application/json"]?.schema;
+    assert.ok(esquema, `OpenAPI no documenta la respuesta ${status} de ${path}`);
+    return esquema;
+  };
+
+  const expandeRefs = (esquema, doc) => {
+    if (!esquema || typeof esquema !== "object") return esquema;
+    if (Array.isArray(esquema)) return esquema.map((s) => expandeRefs(s, doc));
+    if (typeof esquema.$ref === "string") return expandeRefs(resolver(esquema.$ref, doc), doc);
+    const out = {};
+    for (const [k, v] of Object.entries(esquema)) out[k] = expandeRefs(v, doc);
+    return out;
+  };
+
+  const casos = [
+    { ruta: `/api/kpis?${RANGO}`, path: "/kpis" },
+    { ruta: `/api/ventas/tendencia?${RANGO}`, path: "/ventas/tendencia" },
+    { ruta: `/api/ventas/sedes?desde=2026-01&hasta=2026-06`, path: "/ventas/sedes" },
+    { ruta: `/api/asesores/ranking?desde=2026-01&hasta=2026-06`, path: "/asesores/ranking" },
+    { ruta: `/api/clientes?porPagina=5&pagina=1`, path: "/clientes" },
+    { ruta: `/api/clientes/${CLIENTE_A}`, path: "/clientes/{codigo}" },
+  ];
+
+  for (const { ruta, path } of casos) {
+    const { cuerpo } = await pedir(ruta);
+    const esquema = expandeRefs(esquemaDeRespuesta(path, 200), openapi);
+    valida(esquema, cuerpo, ruta);
+  }
+});
