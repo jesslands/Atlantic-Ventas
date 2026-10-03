@@ -299,12 +299,33 @@ test("GET /clientes/[codigo] devuelve la ficha con historial y responde 404 si n
   assert.equal(ausente.status, 404);
 });
 
-test("el API responde con cabeceras de seguridad (helmet) y limite de peticiones", async () => {
+test("el API responde con cabeceras de seguridad (helmet) y límite de peticiones", async () => {
   const respuesta = await fetch(`${BASE}/api/kpis?${RANGO}`);
   assert.equal(respuesta.headers.get("x-content-type-options"), "nosniff");
   assert.ok(respuesta.headers.get("x-frame-options"));
   assert.ok(Number(respuesta.headers.get("x-ratelimit-limit")) > 0);
   assert.ok(respuesta.headers.get("strict-transport-security"), "helmet aplica HSTS");
+  assert.ok(respuesta.headers.get("referrer-policy"), "helmet aplica Referrer-Policy");
+  assert.equal(respuesta.headers.get("x-powered-by"), null, "no se filtra X-Powered-By");
+});
+
+test("el rate limit responde 429 + Retry-After al superar el límite", async () => {
+  const ipSintetica = "203.0.113.7";
+  const cabecera = { "X-Forwarded-For": ipSintetica };
+  const info = await fetch(`${BASE}/api/kpis?${RANGO}`, { headers: cabecera });
+  const limite = Number(info.headers.get("x-ratelimit-limit"));
+  assert.ok(limite > 0, "el endpoint debe anunciar el límite");
+
+  for (let i = 1; i < limite; i += 1) {
+    const r = await fetch(`${BASE}/api/kpis?${RANGO}`, { headers: cabecera });
+    assert.notEqual(r.status, 429, `petición ${i} no debe estar bloqueada`);
+  }
+
+  const bloqueada = await fetch(`${BASE}/api/kpis?${RANGO}`, { headers: cabecera });
+  assert.equal(bloqueada.status, 429);
+  assert.equal(bloqueada.headers.get("retry-after"), "60");
+  const cuerpo = await bloqueada.json();
+  assert.equal(cuerpo.error.codigo, "DEMASIADAS_SOLICITUDES");
 });
 
 test("GET /api/docs/openapi.json documenta los seis endpoints", async () => {
