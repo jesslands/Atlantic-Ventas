@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Lint + Typecheck + Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.8.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+      - run: pnpm build
+        env:
+          DATABASE_URL: postgres://nobody:nobody@127.0.0.1:1/nobody
+
+  test:
+    name: Tests de integración (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: atlantic
+          POSTGRES_PASSWORD: atlantic
+          POSTGRES_DB: atlantic
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atlantic -d atlantic"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.8.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm test:unit
+
+      - run: pnpm build
+        env:
+          DATABASE_URL: postgres://atlantic:atlantic@127.0.0.1:5432/atlantic
+
+      - run: pnpm test:integration
+        env:
+          DATABASE_URL: postgres://atlantic:atlantic@127.0.0.1:5432/atlantic
+          TEST_DATABASE_URL: postgres://atlantic:atlantic@127.0.0.1:5432/atlantic
