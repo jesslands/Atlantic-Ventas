@@ -1,10 +1,5 @@
-import Section from "./components/Section";
+import Resumen from "./components/dashboard/Resumen";
 
 export default function Page() {
-  return (
-    <Section
-      title="Ventas"
-      description="Pedidos, cobros y seguimiento de cada venta en curso."
-    />
-  );
+  return <Resumen />;
 }
