@@ -1,4 +1,4 @@
-import { porSede } from "@/app/lib/api/consultas";
+import { porSede } from "@/app/lib/api/repos/ventas";
 import { leerFiltros } from "@/app/lib/api/filtros";
 import { manejar } from "@/app/lib/api/http";
 
