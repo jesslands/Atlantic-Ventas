@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bodoni_Moda, Montserrat, Poppins } from "next/font/google";
+import { Bodoni_Moda, Poppins } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import Header from "./components/Header";
 import Motion from "./components/Motion";
@@ -12,12 +12,6 @@ const display = Bodoni_Moda({
   subsets: ["latin"],
   weight: ["500", "700", "900"],
   style: ["normal", "italic"],
-});
-
-const montserrat = Montserrat({
-  variable: "--font-montserrat",
-  subsets: ["latin"],
-  weight: ["600", "700"],
 });
 
 const body = Poppins({
@@ -36,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="es"
-      className={`${display.variable} ${body.variable} ${montserrat.variable} h-full antialiased`}
+      className={`${display.variable} ${body.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <Motion>

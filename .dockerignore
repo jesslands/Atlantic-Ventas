@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.kilo
+.codegraph
+*.tsbuildinfo
+.env
+.env.*
+investigacion/*.ipynb_checkpoints
