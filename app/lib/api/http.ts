@@ -1,27 +1,27 @@
+export type DetallesError = Record<string, unknown>;
+
 export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly codigo: string,
-    mensaje: string,
-    readonly detalles?: unknown,
-  ) {
+  readonly status: number;
+  readonly codigo: string;
+  readonly detalles?: DetallesError;
+
+  constructor(status: number, codigo: string, mensaje: string, detalles?: DetallesError) {
     super(mensaje);
+    this.status = status;
+    this.codigo = codigo;
+    this.detalles = detalles;
   }
 }
 
-export const peticionInvalida = (mensaje: string, detalles?: unknown) =>
+export const peticionInvalida = (mensaje: string, detalles?: DetallesError) =>
   new ApiError(400, "PARAMETROS_INVALIDOS", mensaje, detalles);
 
 export const noEncontrado = (mensaje: string) =>
   new ApiError(404, "NO_ENCONTRADO", mensaje);
 
-const cuerpo = (status: number, codigo: string, mensaje: string, detalles?: unknown) =>
+const cuerpo = (status: number, codigo: string, mensaje: string, detalles?: DetallesError) =>
   Response.json({ error: { codigo, mensaje, ...(detalles ? { detalles } : {}) } }, { status });
 
-/**
- * Envuelve un handler de rutas: unico lugar donde se traducen excepciones a
- * respuestas. 400/404 explicitos, 500 sin filtrar detalles de la base.
- */
 export const manejar = <T extends unknown[]>(
   handler: (...args: T) => Promise<Response>,
 ) =>
@@ -36,7 +36,7 @@ export const manejar = <T extends unknown[]>(
       return cuerpo(
         500,
         "ERROR_INTERNO",
-        "Error interno del servidor. Intenta de nuevo mas tarde.",
+        "Error interno del servidor. Intenta de nuevo más tarde.",
       );
     }
   };
