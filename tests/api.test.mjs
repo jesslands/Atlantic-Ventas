@@ -108,6 +108,35 @@ after(async () => {
   await db.end();
 });
 
+test("el runner de migraciones es idempotente", async () => {
+  const { execFile } = await import("node:child_process");
+  const correr = () =>
+    new Promise((resolver, rechazar) => {
+      execFile(
+        "node",
+        ["db/migrate.mjs"],
+        { env: { ...process.env, DATABASE_URL } },
+        (error, stdout, stderr) => {
+          if (error) return rechazar(new Error(`${stderr}\n${stdout}`));
+          resolver(stdout);
+        },
+      );
+    });
+
+  await correr();
+  await correr();
+
+  const { rows } = await sql(
+    `SELECT id FROM aplicada_aplicada`,
+  ).catch(async () => {
+    const r = await sql(`SELECT id FROM schema_migrations ORDER BY id`);
+    return r;
+  });
+  const ids = rows.map((fila) => fila.id);
+  assert.ok(ids.length > 0, "debe haber al menos una migracion aplicada");
+  assert.equal(new Set(ids).size, ids.length, "no hay migraciones duplicadas");
+});
+
 const pedir = async (ruta) => {
   const inicio = performance.now();
   const respuesta = await fetch(`${BASE}${ruta}`);
