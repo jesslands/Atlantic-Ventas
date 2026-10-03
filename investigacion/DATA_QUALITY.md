@@ -135,3 +135,29 @@ Marzo concentra casi el doble de notas crédito que los otros meses.
 | Asesor sin clientes (`ASE-022`)                | 1 código            | Pendiente   |
 
 **Conclusión.** La base está en buen estado: la mayoría de los "problemas" son de formato (fechas, tipos de código) y se arreglan con normalización. El único punto que requiere conversación con operaciones es el de las **94 notas sin respaldo** (probablemente devoluciones de facturas de 2025) y el **asesor `ASE-022`** sin clientes asignados.
+---
+
+## Cómo se aplicó en el backend (rama `Back`)
+
+Cada hallazgo tiene su contraparte ejecutable en `pipeline/limpieza.mjs`, que lee este
+mismo `Base.xlsx`, lo limpia y lo carga en PostgreSQL (`pnpm ingest`, ~25 s). El reporte
+que deja en `pipeline/reporte-limpieza.json` reproduce estas cifras sobre una corrida real:
+
+| Hallazgo de este documento              | Corrección en el pipeline                                       | Resultado medido            |
+|----------------------------------------|----------------------------------------------------------------|-----------------------------|
+| §1 seis formatos de `Periodo`           | `normalizarPeriodo` con `(\d{4})\D+?(\d{1,2})` → `YYYY-MM`       | 446 742 normalizados, **0 inválidos** |
+| §2 padding en `Cod Principal`           | `entero()` con `strip()`                                        | **0 no numéricos**, 11 288 clientes |
+| §3 duplicados en las maestras           | `Map` por llave → se conserva la primera fila                  | 133 + 94 + 332 = **559 eliminados** |
+| §4 notas crédito                        | se conservan; `es_nota_credito` es columna generada en `ventas` | **3 127** detectadas y visibles en `/kpis` |
+| §5 notas sin respaldo                   | se cuentan y se reportan, no se imputan                         | **94 notas / 36 clientes** (0.69%) |
+| §6 ceros                                | se conservan y se cuentan                                       | **11 428** reportados       |
+| §7 integridad referencial               | toda venta se valida contra las maestras antes de insertar     | **0 huérfanos** en las tres dimensiones |
+
+La base destino (`db/schema.sql`) usa **llaves de negocio** y la carga es
+`INSERT ... ON CONFLICT DO UPDATE`: reingerir el mismo Excel actualiza y nunca duplica.
+El grano `ventas(periodo, cod_cliente, cod_material)` coincide con el grano único
+verificado en §7, así que la clave primaria lo blinda en la base.
+
+Pendiente que sigue abierto y que el API **expone** en vez de esconder: las 94 notas sin
+respaldo aparecen en `monto_notas` y en `pct_devoluciones` de `GET /kpis`. Si operaciones
+consigue el histórico de 2025, se puede imputarlas y el indicador baja de 0.70% a ~0.65%.

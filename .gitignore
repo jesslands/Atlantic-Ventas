@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# salida del pipeline de limpieza (se regenera con pnpm ingest)
+pipeline/reporte-limpieza.json
