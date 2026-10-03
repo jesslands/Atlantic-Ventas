@@ -1,4 +1,4 @@
-import { rankingAsesores } from "@/app/lib/api/consultas";
+import { rankingAsesores } from "@/app/lib/api/repos/asesores";
 import { leerFiltros, entero } from "@/app/lib/api/filtros";
 import { manejar } from "@/app/lib/api/http";
 
