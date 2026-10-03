@@ -150,12 +150,37 @@ test("ventas.periodo es un DATE real, no texto", async () => {
   );
   assert.equal(rows[0].data_type, "date", "el periodo se guarda como DATE, no como texto");
 
-  // El grano es mensual: Postgres debe rechazar un dia que no sea el primero del mes.
+  // El grano es mensual: Postgres debe rechazar un día que no sea el primero del mes.
   await assert.rejects(
     sql(`INSERT INTO ventas (periodo, cod_cliente, cod_material, neto)
          VALUES ('2090-02-15', $1, $2, 1)`, [CLIENTE_A, MATERIAL_1]),
     /ventas_periodo_check/,
     "un periodo a mitad de mes se rechaza",
+  );
+});
+
+test("los campos de texto tienen limites VARCHAR (no aceptan cadenas enormes)", async () => {
+  const { rows } = await sql(
+    `SELECT table_name, column_name, character_maximum_length
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND data_type = 'character varying'
+     ORDER BY table_name, ordinal_position`,
+  );
+  assert.ok(rows.length > 0, "el schema declara al menos un VARCHAR(N)");
+  for (const fila of rows) {
+    assert.ok(
+      fila.character_maximum_length > 0 && fila.character_maximum_length <= 250,
+      `${fila.table_name}.${fila.column_name} tiene un limite irreal: ${fila.character_maximum_length}`,
+    );
+  }
+
+  await assert.rejects(
+    sql(
+      `INSERT INTO asesores (cod_asesor, nombre, sede) VALUES ($1, 'OK', 'OK')`,
+      ["ASESOR-EXTRANO"],
+    ),
+    /value too long|asesores_cod_asesor_check/,
+    "un cod_asesor fuera del patron ASE-### se rechaza",
   );
 });
 
