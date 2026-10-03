@@ -1,4 +1,4 @@
-import { peticionInvalida } from "./http";
+import { peticionInvalida } from "./http.ts";
 
 export type Filtros = {
   desde?: string;
@@ -47,7 +47,7 @@ const codigos = (params: URLSearchParams, nombre: string) => {
   for (const valor of valores) {
     if (nombre === "asesor" ? !ASESOR.test(valor.toUpperCase()) : !TEXTO.test(valor)) {
       throw peticionInvalida(
-        `"${nombre}" solo admite los valores del catalogo cargado.`,
+        `"${nombre}" solo admite los valores del catálogo cargado.`,
         { [nombre]: valor },
       );
     }
