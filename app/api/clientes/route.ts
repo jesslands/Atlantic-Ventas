@@ -1,4 +1,4 @@
-import { leerOrden, listarClientes } from "@/app/lib/api/consultas";
+import { leerOrden, listarClientes } from "@/app/lib/api/repos/clientes";
 import { entero, leerFiltros } from "@/app/lib/api/filtros";
 import { manejar, peticionInvalida } from "@/app/lib/api/http";
 

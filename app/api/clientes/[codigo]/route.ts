@@ -1,4 +1,4 @@
-import { historialCliente } from "@/app/lib/api/consultas";
+import { historialCliente } from "@/app/lib/api/repos/clientes";
 import { leerFiltros } from "@/app/lib/api/filtros";
 import { manejar, peticionInvalida } from "@/app/lib/api/http";
 
