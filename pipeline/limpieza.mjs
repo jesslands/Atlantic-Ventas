@@ -1,24 +1,21 @@
-/**
- * Pipeline de limpieza:investigacion/Base.xlsx (sucio) -> Postgres (limpio).
- *
- * Aplicacion de los hallazgos de investigacion/DATA_QUALITY.md:
- *   1. `Periodo` venia en 6 formatos -> se normaliza a YYYY-MM con regex.
- *   2. `Cod Principal` mezclaba int y texto con padding -> se pasa a entero.
- *   3. Maestras con duplicados literales -> se deduplican por llave.
- *   4. `Neto` negativos son notas credito -> se conservan y la base los marca
- *      (`es_nota_credito` es columna generada).
- *   5. Filas huerfanas -> se reportan y no entran a la base.
- *
- * La carga es un UPSERT por llave primaria: reingerir el mismo Excel actualiza
- * las filas existentes y solo agrega las nuevas, nunca duplica.
- *
- *   node --env-file-if-exists=.env pipeline/limpieza.mjs [--archivo=X] [--sin-db]
- */
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import ExcelJS from "exceljs";
-import pg from "pg";
+
+import { hoja, valor } from "./extract.mjs";
+import {
+  entero,
+  etiquetaPeriodo,
+  neto,
+  normalizarPeriodo,
+  texto,
+} from "./transform.mjs";
+import {
+  cargarMaestras,
+  cargarVentas,
+  crearCliente,
+  inicializarEsquema,
+} from "./load.mjs";
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Map(
@@ -28,46 +25,7 @@ const args = new Map(
   }),
 );
 
-const LOTE = 2000;
 const HOJA_VENTAS = "Ventas";
-
-const PERIODO = /(\d{4})\D+?(\d{1,2})/;
-const texto = (valor) => {
-  if (valor === null || valor === undefined) return "";
-  if (typeof valor === "object") return String(valor.text ?? valor.result ?? "").trim();
-  return String(valor).trim();
-};
-const entero = (valor) => {
-  const limpio = texto(valor).replace(/\s/g, "");
-  if (!limpio) return null;
-  const numero = Number(limpio);
-  return Number.isInteger(numero) ? numero : null;
-};
-// El Excel trae "2026.01", "2026/05", "2026 06"… y Postgres solo castea ISO, asi que
-// el periodo se normaliza al primer dia del mes: DATE real, ordenable y filtrable.
-const ISO_PERIODO = /^(\d{4})-(\d{2})/;
-const normalizarPeriodo = (valor) => {
-  const found = PERIODO.exec(texto(valor));
-  if (!found) return null;
-  const [, anio, mes] = found;
-  if (Number(mes) < 1 || Number(mes) > 12) return null;
-  return `${anio}-${mes.padStart(2, "0")}-01`;
-};
-// Etiqueta legible DD/MMMM ("01/enero") para reportes y console, nunca para guardar.
-const etiquetaPeriodo = (iso) => {
-  const [, anio, mes] = ISO_PERIODO.exec(iso) ?? [];
-  return mes
-    // timeZone UTC: formatear la fecha en hora local se corre un dia (UTC-5 -> dia anterior).
-    ? new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "long", timeZone: "UTC" })
-        .format(new Date(Date.UTC(Number(anio), Number(mes) - 1, 1)))
-        .replace(" de ", "/")
-    : "";
-};
-const neto = (valor) => {
-  if (typeof valor === "number") return valor;
-  const limpio = texto(valor).replace(/\s/g, "");
-  return limpio ? Number(limpio) : 0;
-};
 
 const reporte = {
   archivo: args.get("archivo") ?? join(RAIZ, "investigacion", "Base.xlsx"),
@@ -86,73 +44,26 @@ const reporte = {
   cargado: {},
 };
 
-const hoja = async function* (archivo, solo) {
-  const lector = new ExcelJS.stream.xlsx.WorkbookReader(archivo, { worksheets: "emit" });
-  for await (const worksheet of lector) {
-    const wanted = solo ? solo === worksheet.name : worksheet.name !== HOJA_VENTAS;
-    if (!wanted) continue;
-    const columnas = [];
-    for await (const fila of worksheet) {
-      const celdas = fila.values;
-      // La primera fila de cada hoja es el encabezado (en streaming no llega numerada).
-      if (!columnas.length) {
-        for (let columna = 1; columna < celdas.length; columna += 1) {
-          columnas.push(texto(celdas[columna]).toUpperCase());
-        }
-        continue;
-      }
-      yield { hoja: worksheet.name, celdas, columnas };
-    }
-  }
-};
-
-const valor = ({ celdas, columnas }, nombre) => {
-  const indice = columnas.indexOf(nombre);
-  return indice === -1 ? null : celdas[indice + 1];
-};
-
-const insetar = async (client, tabla, columnas, filas, conflicto) => {
-  for (let inicio = 0; inicio < filas.length; inicio += LOTE) {
-    const lote = filas.slice(inicio, inicio + LOTE);
-    const valores = [];
-    const tuplas = lote
-      .map((fila) => {
-        const marcadores = fila.map((dato) => {
-          valores.push(dato);
-          return `$${valores.length}`;
-        });
-        return `(${marcadores.join(",")})`;
-      })
-      .join(",");
-    await client.query(
-      `INSERT INTO ${tabla} (${columnas.join(",")}) VALUES ${tuplas} ${conflicto}`,
-      valores,
-    );
-  }
+const volcarLote = async (cliente, lote) => {
+  if (!cliente || !lote.length) return;
+  await cargarVentas(cliente, lote);
+  lote.length = 0;
 };
 
 const main = async () => {
   const archivo = resolve(RAIZ, reporte.archivo);
   console.log(`Pipeline: ${archivo}`);
-  const cliente = new pg.Client({
-    connectionString: process.env.DATABASE_URL ?? "postgres://localhost/ignorar",
-  });
+  const cliente = crearCliente(process.env.DATABASE_URL);
   const base = !args.get("sin-db") && process.env.DATABASE_URL ? cliente : null;
   if (!args.get("sin-db") && !process.env.DATABASE_URL) {
     throw new Error("Falta DATABASE_URL. Copia .env.example a .env o ejecuta con --sin-db.");
   }
-  if (base) {
-    await base.connect();
-    await base.query(await readFile(join(RAIZ, "db", "schema.sql"), "utf8"));
-  }
+  if (base) await inicializarEsquema(base, RAIZ);
 
-  // --- Pasada 1: maestras (hojas pequenas, ordenan las llaves foraneas) ---
   const clientes = new Map();
   const materiales = new Map();
   const asesores = new Map();
   const asignaciones = new Map();
-  // La hoja "Asesores" puede leerse antes que "Sedes": se guarda cruda y se
-  // resuelve al final, cuando ya estan las dos llaves foraneas.
   const pendientes = [];
 
   for await (const fila of hoja(archivo, null)) {
@@ -233,56 +144,18 @@ const main = async () => {
   );
 
   if (base) {
-    await insetar(
-      base,
-      "asesores",
-      ["cod_asesor", "nombre", "sede"],
-      [...asesores.values()],
-      "ON CONFLICT (cod_asesor) DO UPDATE SET nombre = EXCLUDED.nombre, sede = EXCLUDED.sede",
-    );
-    await insetar(
-      base,
-      "clientes",
-      ["cod_cliente", "nombre", "tipo"],
-      [...clientes.values()],
-      "ON CONFLICT (cod_cliente) DO UPDATE SET nombre = EXCLUDED.nombre, tipo = EXCLUDED.tipo",
-    );
-    await insetar(
-      base,
-      "materiales",
-      ["cod_material", "nombre", "categoria", "subcategoria", "producto_base", "presentacion", "formato", "calidad", "marca"],
-      [...materiales.values()],
-      `ON CONFLICT (cod_material) DO UPDATE SET nombre = EXCLUDED.nombre, categoria = EXCLUDED.categoria,
-       subcategoria = EXCLUDED.subcategoria, producto_base = EXCLUDED.producto_base,
-       presentacion = EXCLUDED.presentacion, formato = EXCLUDED.formato,
-       calidad = EXCLUDED.calidad, marca = EXCLUDED.marca`,
-    );
-    await insetar(
-      base,
-      "cliente_asesor",
-      ["cod_cliente", "cod_asesor"],
-      [...asignaciones.values()],
-      "ON CONFLICT (cod_cliente) DO UPDATE SET cod_asesor = EXCLUDED.cod_asesor",
-    );
+    await cargarMaestras(base, {
+      asesores: [...asesores.values()],
+      clientes: [...clientes.values()],
+      materiales: [...materiales.values()],
+      cliente_asesor: [...asignaciones.values()],
+    });
   }
 
-  // --- Pasada 2: ventas ---
   const conCompra = new Set();
   const lote = [];
   const notas = [];
   let leidas = 0;
-
-  const volcar = async () => {
-    if (!base || !lote.length) return;
-    await insetar(
-      base,
-      "ventas",
-      ["periodo", "cod_cliente", "cod_material", "neto"],
-      lote,
-      `ON CONFLICT (periodo, cod_cliente, cod_material) DO UPDATE SET neto = EXCLUDED.neto`,
-    );
-    lote.length = 0;
-  };
 
   for await (const fila of hoja(archivo, HOJA_VENTAS)) {
     leidas += 1;
@@ -326,12 +199,10 @@ const main = async () => {
     }
 
     lote.push([periodo, codCliente, codMaterial, monto]);
-    if (lote.length >= LOTE) await volcar();
+    if (lote.length >= 2000) await volcarLote(base, lote);
   }
-  await volcar();
+  await volcarLote(base, lote);
 
-  // Cliente que solo devuelve: la nota no tiene ninguna compra que la respalde
-  // (devolucion de una factura de 2025, fuera del dataset). Se reportan, no se borran.
   reporte.limpio.notas_credito_sin_respaldo = notas.filter((codigo) => !conCompra.has(codigo)).length;
   reporte.limpio.clientes_que_solo_devuelven = new Set(
     notas.filter((codigo) => !conCompra.has(codigo)),
@@ -355,7 +226,7 @@ const main = async () => {
     await base.end();
     console.log("  Total en base:", reporte.cargado);
   } else {
-    console.log("  --sin-db: no se cargo Postgres.");
+    console.log("  --sin-db: no se cargó Postgres.");
   }
 
   const destino = join(RAIZ, "pipeline", "reporte-limpieza.json");
