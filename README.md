@@ -31,7 +31,10 @@ docker compose exec app node pipeline/limpieza.mjs   # cargar el Excel dentro de
 |--------------------|-------------------------------------------------------|
 | `pnpm dev`         | API + UI en modo desarrollo                          |
 | `pnpm ingest`      | limpia el Excel y lo carga (upsert) en Postgres      |
-| `pnpm test`        | 17 pruebas de integración contra el API real         |
+| `pnpm test`        | 22 pruebas (unit + integración) contra el API real   |
+| `pnpm test:unit`   | solo unit, sin DB                                     |
+| `pnpm test:integration` | solo integración, requiere Postgres             |
+| `pnpm migrate`     | aplica migraciones pendientes de `db/migrations/`     |
 | `pnpm build`       | build de producción                                  |
 | `pnpm typecheck`   | `tsc --noEmit`                                       |
 | `pnpm lint`        | eslint                                               |
@@ -205,9 +208,10 @@ reingerir el mismo Excel **actualiza** las filas existentes y solo agrega las nu
 pnpm ingest && pnpm ingest   # segunda corrida: mismos conteos, cero duplicados
 ```
 
-> Si cambiaste `db/schema.sql` y ya tienes un volumen con datos, `CREATE TABLE IF NOT EXISTS`
-> no toca la tabla vieja: hay que `docker compose down -v` y reingerir (25 s, los datos
-> salen del Excel).
+> El esquema vive en `db/migrations/` y se aplica con `pnpm migrate`. Cada archivo
+> `NNNN_*.sql` corre una vez, en orden, y queda registrado en `schema_migrations`.
+> `db/schema.sql` es un snapshot acumulado, solo para lectura. Reingerir no recrea
+> tablas; las migraciones son la única vía de cambio al esquema.
 
 El grano de `ventas` es `(periodo, cod_cliente, cod_material)`, que es único en el
 dataset (verificado). `cliente_asesor` usa `cod_cliente` como llave primaria —y no
@@ -217,7 +221,8 @@ insertando dos veces y esperando 3 filas, no 6.
 
 ### Esquema
 
-`db/schema.sql` (idempotente, se ejecuta en cada corrida del pipeline):
+Migraciones en `db/migrations/` (cada `NNNN_*.sql` se aplica una vez, en orden).
+Snapshot acumulado en `db/schema.sql` (solo lectura, para referencia).
 
 | Tabla            | Llave primaria                        | Notas                                   |
 |------------------|---------------------------------------|-----------------------------------------|
@@ -233,16 +238,19 @@ insertando dos veces y esperando 3 filas, no 6.
 
 ## Pruebas
 
-`tests/api.test.mjs` — 17 pruebas de integración con el runner nativo de Node
-(`node:test`), sin framework extra. Levanta el servidor real (`next start`) contra
-Postgres y siembra datos deterministas en el **periodo 2090**, que no existe en el
-dataset, así que las pruebas son válidas con la base llena o vacía.
+- `tests/unit.test.mjs` — 18 pruebas unitarias para funciones puras (`variacion`,
+  `proyectar`) y parsers de query string. No requieren servidor ni DB; corren en ms.
+- `tests/api.test.mjs` — 22 pruebas de integración con el runner nativo de Node
+  (`node:test`), sin framework extra. Levanta el servidor real (`next start`) contra
+  Postgres y siembra datos deterministas en el **periodo 2090**, que no existe en el
+  dataset, así que las pruebas son válidas con la base llena o vacía.
 
 ```bash
-docker compose up -d db && pnpm build && pnpm test
+pnpm test:unit                                # solo unit, sin DB
+docker compose up -d db && pnpm build && pnpm test:integration   # todo
 ```
 
-Cobertura por endpoint:
+Cobertura por endpoint (integración):
 
 - `/kpis` — valores exactos del periodo (incluida una nota crédito), filtro por sede y
   asesor, `400` por periodo inválido y por `desde > hasta`, intento de inyección
@@ -253,7 +261,10 @@ Cobertura por endpoint:
 - `/asesores/ranking` — orden descendente por venta y variación calculada.
 - `/clientes` — paginación, búsqueda parcial, orden por nombre, `400` por orden desconocido.
 - `/clientes/{codigo}` — ficha con historial y materiales, `404`, `400` por código no numérico.
-- Seguridad — cabeceras de Helmet y `X-RateLimit-Limit` presentes.
+- Seguridad — cabeceras de Helmet, `X-RateLimit-Limit`, `429 + Retry-After` al exceder.
+- Contrato — el JSON de cada endpoint cumple el OpenAPI documentado.
+- Schema — campos VARCHAR acotados, cod_asesor fuera de patrón rechazado.
+- Migraciones — el runner es idempotente.
 - Documentación — `/api/docs/openapi.json` expone los seis endpoints.
 - Idempotencia — doble `INSERT` del mismo grano no duplica filas.
 
@@ -274,17 +285,27 @@ app/
     docs/openapi.json/route.ts    GET  /api/docs/openapi.json
   lib/api/
     analitica.ts                  regresión lineal y variación (funciones puras)
-    consultas.ts                  todo el SQL parametrizado
+    repos/ventas.ts               queries de /kpis, /ventas/*
+    repos/clientes.ts             queries de /clientes, /clientes/{codigo}
+    repos/asesores.ts             query de /asesores/ranking
     db.ts                         pool de `pg`
     filtros.ts                    validación de la query string
     http.ts                       errores 400/404/500 y envoltorio de handlers
     openapi.ts                    contrato OpenAPI
-db/schema.sql                     esquema + índices
-pipeline/limpieza.mjs             Excel sucio -> Postgres
+db/schema.sql                     snapshot del esquema (solo lectura)
+db/migrations/NNNN_*.sql         migraciones incrementales
+db/migrate.mjs                   runner de migraciones
+pipeline/extract.mjs             lectura del Excel
+pipeline/transform.mjs           normalización de filas
+pipeline/load.mjs                conexión a Postgres y carga
+pipeline/limpieza.mjs            orquestador del pipeline
 proxy.ts                          Helmet + límite de peticiones
+tests/unit.test.mjs               pruebas unitarias (funciones puras y parsers)
 tests/api.test.mjs                pruebas de integración
 docker-compose.yml                Postgres + Next en producción
 ```
+
+> Ver también: `docs/arquitectura.md`, `docs/seguridad.md`, `docs/decisiones.md`.
 
 > **Al integrar la rama `UI`:** sus helpers `proyectar`/`variacion` de
 > `app/lib/analytics.ts` son equivalentes a los de `app/lib/api/analitica.ts`. Al unirlas
