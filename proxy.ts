@@ -30,7 +30,7 @@ const proteger = helmet({ contentSecurityPolicy: false });
 export function proxy(request: NextRequest) {
   if (excedido(ip(request))) {
     return Response.json(
-      { error: { codigo: "DEMASIADAS_SOLICITUDES", mensaje: "Limite de peticiones superado. Reintenta en un minuto." } },
+      { error: { codigo: "DEMASIADAS_SOLICITUDES", mensaje: "Límite de peticiones superado. Reintenta en un minuto." } },
       { status: 429, headers: { "Retry-After": "60" } },
     );
   }

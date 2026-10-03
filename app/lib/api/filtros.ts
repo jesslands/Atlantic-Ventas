@@ -23,7 +23,7 @@ const lista = (params: URLSearchParams, nombre: string) =>
 
 const unico = <T>(valores: T[], nombre: string): T | undefined => {
   if (valores.length > 1) {
-    throw peticionInvalida(`El parametro "${nombre}" admite un solo valor.`, {
+    throw peticionInvalida(`El parámetro "${nombre}" admite un solo valor.`, {
       [nombre]: valores,
     });
   }

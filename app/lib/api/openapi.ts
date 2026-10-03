@@ -47,7 +47,7 @@ const ERROR = {
 const ERRORES = {
   400: respuesta("Parametro invalido", ERROR),
   404: respuesta("Recurso no encontrado", ERROR),
-  429: respuesta("Limite de peticiones superado", ERROR),
+  429: respuesta("Límite de peticiones superado", ERROR),
   500: respuesta("Error interno", ERROR),
 };
 

@@ -15,7 +15,7 @@ export const GET = manejar(async (request: Request) => {
   }
   const busqueda = params.get("q")?.trim() || undefined;
   if (busqueda && busqueda.length > 100) {
-    throw peticionInvalida('"q" admite maximo 100 caracteres.', { q: busqueda.slice(0, 120) });
+    throw peticionInvalida('"q" admite máximo 100 caracteres.', { q: busqueda.slice(0, 120) });
   }
 
   const clientes = await listarClientes(filtros, {
