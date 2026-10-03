@@ -117,7 +117,7 @@ Marzo concentra casi el doble de notas crédito que los otros meses.
 
 **Detalle menor:** existe un código **`ASE-022`** en la hoja `Sedes` que no aparece asignado a ningún cliente en `Asesores`. No afecta las ventas (no genera huérfanos), puede ser un asesor inactivo.
 
-**Cómo se resolvió.** No hubo nada que reparar. La base es referencialmente íntegra y el grano `(periodo, cliente, material)` no tiene duplicados. despues de aplicar las correcciónes previas.
+**Cómo se resolvió.** No hubo nada que reparar. La base es referencialmente íntegra y el grano `(periodo, cliente, material)` no tiene duplicados. Después de aplicar las correcciones previas.
 
 ---
 
