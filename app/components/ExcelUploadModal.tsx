@@ -118,7 +118,7 @@ export default function ExcelUploadModal() {
                 <div>
                   <h2
                     id="excel-upload-title"
-                    className="font-montserrat text-3xl leading-tight font-bold tracking-tight"
+                    className="text-3xl leading-tight font-bold tracking-tight"
                   >
                     Cargar <span className="text-[#c28e4b]">Excel</span> con
                     información maestra
