@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FileSpreadsheet, UploadCloud, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { useModalUpload, usePegado } from "../lib/ui";
 
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
 const OLE_MAGIC = [0xd0, 0xcf, 0x11, 0xe0];
@@ -37,7 +38,8 @@ const formatSize = (bytes: number) =>
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 export default function ExcelUploadModal() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useModalUpload();
+  const pegado = usePegado();
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +58,7 @@ export default function ExcelUploadModal() {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [isOpen]);
+  }, [isOpen, setIsOpen]);
 
   async function accept(candidate: File | undefined) {
     if (!candidate) return;
@@ -88,7 +90,9 @@ export default function ExcelUploadModal() {
         onClick={() => setIsOpen(true)}
         aria-haspopup="dialog"
         aria-label="Cargar Excel con información maestra"
-        className="fixed right-4 top-4 z-40 flex h-11 w-11 items-center justify-center rounded-full text-brand transition-opacity hover:opacity-60 sm:right-6 sm:top-6"
+        className={`fixed top-4 right-4 z-40 h-11 w-11 items-center justify-center rounded-full text-brand transition-opacity hover:opacity-60 sm:right-6 sm:top-6 ${
+          pegado ? "flex sm:hidden" : "flex"
+        }`}
       >
         <UploadCloud aria-hidden="true" className="h-5 w-5" />
       </button>
