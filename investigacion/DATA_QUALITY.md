@@ -145,7 +145,7 @@ que deja en `pipeline/reporte-limpieza.json` reproduce estas cifras sobre una co
 
 | Hallazgo de este documento              | Corrección en el pipeline                                       | Resultado medido            |
 |----------------------------------------|----------------------------------------------------------------|-----------------------------|
-| §1 seis formatos de `Periodo`           | `normalizarPeriodo` con `(\d{4})\D+?(\d{1,2})` → `YYYY-MM`       | 446 742 normalizados, **0 inválidos** |
+| §1 seis formatos de `Periodo`           | `normalizarPeriodo` con `(\d{4})\D+?(\d{1,2})` → DATE `2026-01-01` | 446 742 normalizados, **0 inválidos**; la columna es `date` con `CHECK` de día 1 |
 | §2 padding en `Cod Principal`           | `entero()` con `strip()`                                        | **0 no numéricos**, 11 288 clientes |
 | §3 duplicados en las maestras           | `Map` por llave → se conserva la primera fila                  | 133 + 94 + 332 = **559 eliminados** |
 | §4 notas crédito                        | se conservan; `es_nota_credito` es columna generada en `ventas` | **3 127** detectadas y visibles en `/kpis` |

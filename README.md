@@ -56,7 +56,7 @@ filtros opcionales:
 
 | Filtro   | Formato                       | Notas                                        |
 |----------|-------------------------------|----------------------------------------------|
-| `desde`  | `YYYY-MM`                     | Periodo inicial, inclusive                  |
+| `desde`  | `YYYY-MM`                     | Periodo inicial, inclusive; se compara contra el DATE `2026-01-01` |
 | `hasta`  | `YYYY-MM`                     | Periodo final, inclusive                     |
 | `sede`   | `BOGOTA,CALI`                 | Repetible o separado por coma; sin distinguir mayúsculas |
 | `asesor` | `ASE-004`                     | Repetible o separado por coma                |
@@ -93,6 +93,26 @@ Una sola forma para todos:
 | 404    | `NO_ENCONTRADO`        | Cliente inexistente                              |
 | 429    | `DEMASIADAS_SOLICITUDES`| Se pasó `RATE_LIMIT_MAX` en la ventana de 60 s   |
 | 500    | `ERROR_INTERNO`        | Fallo no previsto; se registra en el log del servidor y **no** se filtra el detalle al cliente |
+
+### El periodo es una fecha, no un texto
+
+`ventas.periodo` es un `DATE` de Postgres con el **primer día del mes** (`2026-01-01`),
+porque el grano del dato es mensual. Un `CHECK` impide que entre un día que no sea el
+primero, así que nadie puede meter `2026-01-17` a mano. La API sigue hablando `YYYY-MM`
+en filtros y respuestas: es corto, ordena bien y no tiene ambigüedad de locale (a diferencia
+de `01/01/2026`, donde nadie sabe si es día/mes o mes/día). Si necesitas la etiqueta
+`DD/MMMM` para mostrar, el pipeline ya la produce:
+
+```
+1/enero | 1/febrero | 1/marzo | 1/abril | 1/mayo | 1/junio
+```
+
+y queda en `pipeline/reporte-limpieza.json` como `{ iso: "2026-01-01", etiqueta: "1/enero", filas: 82387 }`.
+
+> El `date` de `pg` vuelve como `Date` en JS a medianoche local, y al serializar se corre
+> un día entero (UTC-5 → día anterior). Por eso el driver devuelve las fechas como texto y
+> los agregados las formatean con `to_char(v.periodo, 'YYYY-MM')` **en Postgres**, donde no
+> hay zona horaria que las mueva. Hay dos pruebas que lo vigilan.
 
 ### Definiciones de negocio
 
@@ -166,7 +186,7 @@ Aplica los hallazgos de `DATA_QUALITY.md`:
 
 | Hallazgo (DATA_QUALITY.md)               | Cómo lo resuelve el pipeline                            |
 |-----------------------------------------|---------------------------------------------------------|
-| §1 `Periodo` en 6 formatos              | Regex `(\d{4})\D+?(\d{1,2})` → `YYYY-MM`; 0 inválidos    |
+| §1 `Periodo` en 6 formatos              | Regex `(\d{4})\D+?(\d{1,2})` → `2026-01-01`, DATE real; 0 inválidos |
 | §2 `Cod Principal` con padding de texto  | `strip()` + conversión a entero; 0 no numéricos           |
 | §3 Duplicados en maestras               | Deduplicación por llave: 133 + 94 + 332 = 559 filas       |
 | §4 `Neto` negativos = notas crédito      | Se conservan; `es_nota_credito` es columna generada      |
@@ -185,6 +205,10 @@ reingerir el mismo Excel **actualiza** las filas existentes y solo agrega las nu
 pnpm ingest && pnpm ingest   # segunda corrida: mismos conteos, cero duplicados
 ```
 
+> Si cambiaste `db/schema.sql` y ya tienes un volumen con datos, `CREATE TABLE IF NOT EXISTS`
+> no toca la tabla vieja: hay que `docker compose down -v` y reingerir (25 s, los datos
+> salen del Excel).
+
 El grano de `ventas` es `(periodo, cod_cliente, cod_material)`, que es único en el
 dataset (verificado). `cliente_asesor` usa `cod_cliente` como llave primaria —y no
 `(cod_cliente, cod_asesor)`— para garantizar **un asesor por cliente**: si un cliente
@@ -197,7 +221,7 @@ insertando dos veces y esperando 3 filas, no 6.
 
 | Tabla            | Llave primaria                        | Notas                                   |
 |------------------|---------------------------------------|-----------------------------------------|
-| `ventas`         | `(periodo, cod_cliente, cod_material)`| `neto numeric(18,2)`, `CHECK` de formato de periodo, columna generada `es_nota_credito` |
+| `ventas`         | `(periodo, cod_cliente, cod_material)`| `periodo` es **DATE** (primer día del mes, con `CHECK` que rechaza otro día), `neto numeric(18,2)`, columna generada `es_nota_credito` |
 | `clientes`       | `cod_cliente`                         | Del Excel `Clientes`                     |
 | `materiales`     | `cod_material`                        | Del Excel `Materiales`                   |
 | `asesores`       | `cod_asesor`                          | Del Excel `Sedes` (código, nombre, sede) |

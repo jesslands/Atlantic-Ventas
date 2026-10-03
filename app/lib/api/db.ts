@@ -3,6 +3,9 @@ import pgDefault, { Pool, type QueryResultRow } from "pg";
 // int8 (bigint) vuelve como string por defecto en pg. Los codigos de negocio
 // caben de sobra en Number y la API los entrega como numeros.
 pgDefault.types.setTypeParser(pgDefault.types.builtins.INT8, Number);
+// date vuelve como Date (medianoche local) y al serializar se corre un dia por la
+// zona horaria. La API lo entrega como texto YYYY-MM-DD, sin deriva.
+pgDefault.types.setTypeParser(pgDefault.types.builtins.DATE, (valor) => valor);
 
 const globalForDb = globalThis as unknown as { pool?: Pool };
 

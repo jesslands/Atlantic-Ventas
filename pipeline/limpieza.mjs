@@ -43,11 +43,25 @@ const entero = (valor) => {
   const numero = Number(limpio);
   return Number.isInteger(numero) ? numero : null;
 };
+// El Excel trae "2026.01", "2026/05", "2026 06"… y Postgres solo castea ISO, asi que
+// el periodo se normaliza al primer dia del mes: DATE real, ordenable y filtrable.
+const ISO_PERIODO = /^(\d{4})-(\d{2})/;
 const normalizarPeriodo = (valor) => {
   const found = PERIODO.exec(texto(valor));
   if (!found) return null;
   const [, anio, mes] = found;
-  return Number(mes) >= 1 && Number(mes) <= 12 ? `${anio}-${mes.padStart(2, "0")}` : null;
+  if (Number(mes) < 1 || Number(mes) > 12) return null;
+  return `${anio}-${mes.padStart(2, "0")}-01`;
+};
+// Etiqueta legible DD/MMMM ("01/enero") para reportes y console, nunca para guardar.
+const etiquetaPeriodo = (iso) => {
+  const [, anio, mes] = ISO_PERIODO.exec(iso) ?? [];
+  return mes
+    // timeZone UTC: formatear la fecha en hora local se corre un dia (UTC-5 -> dia anterior).
+    ? new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "long", timeZone: "UTC" })
+        .format(new Date(Date.UTC(Number(anio), Number(mes) - 1, 1)))
+        .replace(" de ", "/")
+    : "";
 };
 const neto = (valor) => {
   if (typeof valor === "number") return valor;
@@ -57,6 +71,7 @@ const neto = (valor) => {
 
 const reporte = {
   archivo: args.get("archivo") ?? join(RAIZ, "investigacion", "Base.xlsx"),
+  periodos: new Map(),
   limpio: {
     periodos_renormalizados: 0,
     periodos_invalidos: 0,
@@ -278,6 +293,8 @@ const main = async () => {
       continue;
     }
     if (original !== periodo) reporte.limpio.periodos_renormalizados += 1;
+    if (!reporte.periodos.has(periodo)) reporte.periodos.set(periodo, 0);
+    reporte.periodos.set(periodo, reporte.periodos.get(periodo) + 1);
 
     const codCliente = entero(valor(fila, "COD PRINCIPAL"));
     const codMaterial = entero(valor(fila, "COD MATERIAL"));
@@ -320,6 +337,9 @@ const main = async () => {
     notas.filter((codigo) => !conCompra.has(codigo)),
   ).size;
   console.log(`  Ventas leidas: ${leidas.toLocaleString("es-CO")}`);
+  console.log(
+    `  Periodos: ${[...reporte.periodos.keys()].sort().map((iso) => etiquetaPeriodo(iso)).join(" | ")}`,
+  );
 
   if (base) {
     const { rows } = await base.query(
@@ -340,7 +360,19 @@ const main = async () => {
 
   const destino = join(RAIZ, "pipeline", "reporte-limpieza.json");
   await mkdir(dirname(destino), { recursive: true });
-  await writeFile(destino, JSON.stringify(reporte, null, 2));
+  await writeFile(
+    destino,
+    JSON.stringify(
+      {
+        ...reporte,
+        periodos: [...reporte.periodos]
+          .map(([iso, filas]) => ({ iso, etiqueta: etiquetaPeriodo(iso), filas }))
+          .sort((a, b) => a.iso.localeCompare(b.iso)),
+      },
+      null,
+      2,
+    ),
+  );
   console.log("  Limpieza:", reporte.limpio);
   console.log(`  Reporte: ${destino}`);
 };

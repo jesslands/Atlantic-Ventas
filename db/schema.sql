@@ -38,11 +38,13 @@ CREATE TABLE IF NOT EXISTS cliente_asesor (
 );
 
 -- Grano: una fila por (periodo, cliente, material).
+-- `periodo` es un DATE real (primer dia del mes, que es como se graina el dato) y no
+-- texto: asi se ordena, se indexa y se filtra por rango sin depender del locale.
 CREATE TABLE IF NOT EXISTS ventas (
-  periodo      text            NOT NULL CHECK (periodo ~ '^[0-9]{4}-[0-9]{2}$'),
-  cod_cliente  bigint          NOT NULL REFERENCES clientes (cod_cliente),
-  cod_material bigint          NOT NULL REFERENCES materiales (cod_material),
-  neto         numeric(18, 2)  NOT NULL,
+  periodo      date           NOT NULL CHECK (EXTRACT(DAY FROM periodo) = 1),
+  cod_cliente  bigint         NOT NULL REFERENCES clientes (cod_cliente),
+  cod_material bigint         NOT NULL REFERENCES materiales (cod_material),
+  neto         numeric(18, 2) NOT NULL,
   es_nota_credito boolean      NOT NULL GENERATED ALWAYS AS (neto < 0) STORED,
   PRIMARY KEY (periodo, cod_cliente, cod_material)
 );

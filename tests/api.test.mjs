@@ -49,19 +49,21 @@ async function sembrar() {
   for (const intento of [1, 2]) {
     await sql(
       `INSERT INTO ventas (periodo, cod_cliente, cod_material, neto) VALUES
-         ('2090-01', $1, $3, 1000),
-         ('2090-02', $1, $3, 1500),
-         ('2090-02', $2, $4, -300)
+         ('2090-01-01', $1, $3, 1000),
+         ('2090-02-01', $1, $3, 1500),
+         ('2090-02-01', $2, $4, -300)
        ON CONFLICT (periodo, cod_cliente, cod_material) DO UPDATE SET neto = EXCLUDED.neto`,
       [CLIENTE_A, CLIENTE_B, MATERIAL_1, MATERIAL_2],
     );
-    const { rows } = await sql("SELECT count(*)::int AS total FROM ventas WHERE periodo LIKE '2090-%'");
+    const { rows } = await sql(
+      "SELECT count(*)::int AS total FROM ventas WHERE periodo BETWEEN '2090-01-01' AND '2090-12-31'",
+    );
     assert.equal(rows[0].total, 3, `intento ${intento}: el grano no se duplica`);
   }
 }
 
 async function limpiar() {
-  await sql("DELETE FROM ventas WHERE periodo LIKE '2090-%'");
+  await sql("DELETE FROM ventas WHERE periodo BETWEEN '2090-01-01' AND '2090-12-31'");
   await sql("DELETE FROM cliente_asesor WHERE cod_cliente IN ($1, $2)", [CLIENTE_A, CLIENTE_B]);
   await sql("DELETE FROM clientes WHERE cod_cliente IN ($1, $2)", [CLIENTE_A, CLIENTE_B]);
   await sql("DELETE FROM materiales WHERE cod_material IN ($1, $2)", [MATERIAL_1, MATERIAL_2]);
@@ -111,6 +113,32 @@ const pedir = async (ruta) => {
   const respuesta = await fetch(`${BASE}${ruta}`);
   return { respuesta, cuerpo: await respuesta.json(), ms: performance.now() - inicio };
 };
+
+test("ventas.periodo es un DATE real, no texto", async () => {
+  const { rows } = await sql(
+    `SELECT data_type FROM information_schema.columns
+     WHERE table_name = 'ventas' AND column_name = 'periodo'`,
+  );
+  assert.equal(rows[0].data_type, "date", "el periodo se guarda como DATE, no como texto");
+
+  // El grano es mensual: Postgres debe rechazar un dia que no sea el primero del mes.
+  await assert.rejects(
+    sql(`INSERT INTO ventas (periodo, cod_cliente, cod_material, neto)
+         VALUES ('2090-02-15', $1, $2, 1)`, [CLIENTE_A, MATERIAL_1]),
+    /ventas_periodo_check/,
+    "un periodo a mitad de mes se rechaza",
+  );
+});
+
+test("la API expone el periodo como YYYY-MM sin correr de dia por zona horaria", async () => {
+  const { rows } = await sql(
+    "SELECT periodo::text AS iso FROM ventas WHERE periodo = '2090-01-01' LIMIT 1",
+  );
+  assert.equal(rows[0].iso, "2090-01-01");
+
+  const { cuerpo } = await pedir(`/api/ventas/tendencia?${RANGO}`);
+  assert.equal(cuerpo.serie[0].periodo, "2090-01", "texto YYYY-MM, sin -03:00 ni corrimiento");
+});
 
 test("GET /kpis devuelve los indicadores del periodo y la variacion contra el mes anterior", async () => {
   const { respuesta, cuerpo } = await pedir(`/api/kpis?${RANGO}`);

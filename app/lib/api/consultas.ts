@@ -1,6 +1,6 @@
 import { variacion, type FilaPeriodo } from "./analitica";
 import { consultar } from "./db";
-import { moverPeriodo, type Filtros } from "./filtros";
+import { comoFecha, moverPeriodo, type Filtros } from "./filtros";
 import { noEncontrado, peticionInvalida } from "./http";
 
 /**
@@ -29,8 +29,8 @@ const desdeVentas = (
 const where = (filtros: Filtros, busqueda?: string) => {
   const condiciones: string[] = [];
   const params: unknown[] = [];
-  if (filtros.desde) condiciones.push(`v.periodo >= $${params.push(filtros.desde)}`);
-  if (filtros.hasta) condiciones.push(`v.periodo <= $${params.push(filtros.hasta)}`);
+  if (filtros.desde) condiciones.push(`v.periodo >= $${params.push(comoFecha(filtros.desde))}::date`);
+  if (filtros.hasta) condiciones.push(`v.periodo <= $${params.push(comoFecha(filtros.hasta))}::date`);
   if (filtros.sedes.length)
     condiciones.push(`upper(a.sede) = ANY($${params.push(filtros.sedes)}::text[])`);
   if (filtros.asesores.length)
@@ -40,7 +40,7 @@ const where = (filtros: Filtros, busqueda?: string) => {
   return { where: condiciones.length ? `WHERE ${condiciones.join(" AND ")}` : "", params };
 };
 
-const AGREGADO_MENSUAL = `v.periodo,
+const AGREGADO_MENSUAL = `to_char(v.periodo, 'YYYY-MM') AS periodo,
        sum(v.neto)::float8 AS neto,
        count(*)::int AS ventas,
        count(*) FILTER (WHERE v.neto < 0)::int AS notas,
@@ -141,7 +141,8 @@ export const rankingAsesores = async (filtros: Filtros, limite: number): Promise
   const { where: w, params } = where(filtros);
   const { rows } = await consultar<FilaAsesorCruda>(
     // Dos granulidades en una ida: periodo NULL = total del asesor.
-    `SELECT a.cod_asesor, max(a.nombre) AS nombre, max(a.sede) AS sede, v.periodo,
+    `SELECT a.cod_asesor, max(a.nombre) AS nombre, max(a.sede) AS sede,
+            to_char(v.periodo, 'YYYY-MM') AS periodo,
             sum(v.neto)::float8 AS neto, count(*)::int AS ventas,
             count(DISTINCT v.cod_cliente)::int AS clientes
      ${desdeVentas(filtros, { asesor: true })} ${w}
@@ -220,7 +221,7 @@ export const listarClientes = async (
             sum(v.neto)::float8 AS neto, count(*)::int AS ventas,
             count(*) FILTER (WHERE v.neto < 0)::int AS notas,
             coalesce(sum(v.neto) FILTER (WHERE v.neto < 0), 0)::float8 AS monto_notas,
-            max(v.periodo) AS ultima_compra,
+            to_char(max(v.periodo), 'YYYY-MM') AS ultima_compra,
             count(*) OVER ()::int AS total
      ${desdeVentas(filtros, { cliente: true, asesor: true })} ${w}
      GROUP BY c.cod_cliente, c.nombre, c.tipo, a.sede, a.cod_asesor

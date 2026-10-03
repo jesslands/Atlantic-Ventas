@@ -81,6 +81,9 @@ export const leerFiltros = (params: URLSearchParams): Filtros => {
   };
 };
 
+/** "2026-03" -> "2026-03-01": el primer dia, que es como se guarda el DATE. */
+export const comoFecha = (periodo: string) => `${periodo}-01`;
+
 /** Desplaza un periodo YYYY-MM n meses (n negativo hacia atrás). */
 export const moverPeriodo = (periodoBase: string, meses: number) => {
   const [anio, mes] = periodoBase.split("-").map(Number);
