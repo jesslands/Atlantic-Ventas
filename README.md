@@ -73,7 +73,8 @@ filtros opcionales:
 | `GET /asesores/ranking` | Ranking por venta neta con clientes, ticket medio y variación (`?limite=`, máx. 100)  |
 | `GET /asesores/{codigo}`| Ficha del asesor: serie mensual y top 10 clientes por neto                           |
 | `GET /clientes`         | Listado paginado con búsqueda (`?q=`), ordenamiento (`?orden=`, `?dir=`) y filtros (tope `pagina` 2.000) |
-| `GET /clientes/{codigo}`| Ficha del cliente: serie mensual, top 8 materiales y primera/última compra            |
+| `GET /clientes/{codigo}`| Ficha del cliente: serie mensual, top 8 materiales, neto por categoría y primera/última compra |
+| `GET /clientes/{codigo}/compras` | Historial línea a línea (mes × material), paginado, con búsqueda por material y orden (`periodo`, `neto`, `material`) |
 
 Ejemplos:
 
@@ -279,12 +280,13 @@ Cobertura por endpoint (integración):
 - `/ventas/sedes` — las 7 sedes con venta suman 100% de participación, filtro por asesor.
 - `/asesores/ranking` — orden descendente por venta y variación calculada.
 - `/clientes` — paginación, búsqueda parcial, orden por nombre, `400` por orden desconocido.
-- `/clientes/{codigo}` — ficha con historial y materiales, `404`, `400` por código no numérico.
+- `/clientes/{codigo}` — ficha con historial, materiales y categorías, `404`, `400` por código no numérico.
+- `/clientes/{codigo}/compras` — historial línea a línea, orden, búsqueda, nota crédito, `400` por orden inválido, `404`.
 - Seguridad — cabeceras de Helmet, `X-RateLimit-Limit`, `429 + Retry-After` al exceder.
 - Contrato — el JSON de cada endpoint cumple el OpenAPI documentado.
 - Schema — campos VARCHAR acotados, cod_asesor fuera de patrón rechazado.
 - Migraciones — el runner es idempotente.
-- Documentación — `/api/docs/openapi.json` expone los seis endpoints.
+- Documentación — `/api/docs/openapi.json` expone los ocho endpoints.
 - Idempotencia — doble `INSERT` del mismo grano no duplica filas.
 
 ---
@@ -301,12 +303,13 @@ app/
     asesores/[codigo]/route.ts    GET  /asesores/{codigo}
     clientes/route.ts             GET  /clientes
     clientes/[codigo]/route.ts    GET  /clientes/{codigo}
+    clientes/[codigo]/compras/route.ts GET /clientes/{codigo}/compras
     docs/route.ts                 GET  /api/docs            (Swagger UI)
     docs/openapi.json/route.ts    GET  /api/docs/openapi.json
   lib/api/
     analitica.ts                  regresión lineal y variación (funciones puras)
     repos/ventas.ts               queries de /kpis, /ventas/*
-    repos/clientes.ts             queries de /clientes, /clientes/{codigo}
+    repos/clientes.ts             queries de /clientes, /clientes/{codigo}, /clientes/{codigo}/compras
     repos/asesores.ts             queries de /asesores/ranking y /asesores/{codigo}
     db.ts                         pool de `pg`
     filtros.ts                    validación de la query string

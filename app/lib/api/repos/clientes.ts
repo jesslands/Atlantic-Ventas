@@ -86,6 +86,7 @@ export type HistorialCliente = {
   ultima_compra: string;
   periodos: Array<{ periodo: string; neto: number; ventas: number; notas: number; monto_notas: number; clientes: number; ticket_mediano: number }>;
   materiales: { codigo: number; nombre: string; neto: number; ventas: number }[];
+  categorias: { categoria: string; neto: number; ventas: number }[];
 };
 
 export const historialCliente = async (
@@ -104,7 +105,7 @@ export const historialCliente = async (
   if (!ficha) throw noEncontrado(`No existe el cliente ${codigo}.`);
 
   const todos = whereVentas(filtros);
-  const [serie, materiales, resumen] = await Promise.all([
+  const [serie, materiales, resumen, categorias] = await Promise.all([
     consultar<HistorialCliente["periodos"][number]>(
       `SELECT to_char(v.periodo, 'YYYY-MM') AS periodo,
               sum(v.neto)::float8 AS neto,
@@ -137,6 +138,17 @@ export const historialCliente = async (
        ${todos.where} AND v.cod_cliente = $${todos.params.length + 1}`,
       [...todos.params, codigo],
     ),
+    consultar<HistorialCliente["categorias"][number]>(
+      `SELECT coalesce(m.categoria, 'Sin categoría') AS categoria,
+              sum(v.neto)::float8 AS neto, count(*)::int AS ventas
+       FROM ventas v
+       JOIN materiales m ON m.cod_material = v.cod_material
+       JOIN cliente_asesor ca ON ca.cod_cliente = v.cod_cliente
+       JOIN asesores a ON a.cod_asesor = ca.cod_asesor
+       ${todos.where} AND v.cod_cliente = $${todos.params.length + 1}
+       GROUP BY 1 ORDER BY neto DESC`,
+      [...todos.params, codigo],
+    ),
   ]);
 
   const periodos = serie.rows;
@@ -149,5 +161,74 @@ export const historialCliente = async (
     ultima_compra: periodos.at(-1)?.periodo ?? "",
     periodos,
     materiales: materiales.rows,
+    categorias: categorias.rows,
   };
+};
+
+const ORDENES_COMPRA = {
+  periodo: "v.periodo",
+  neto: "v.neto",
+  material: "m.nombre",
+} as const;
+
+export type OrdenCompra = keyof typeof ORDENES_COMPRA;
+
+export const leerOrdenCompra = (valor?: string): OrdenCompra => {
+  const orden = (valor ?? "periodo") as OrdenCompra;
+  // Mismo criterio que leerOrden: lista blanca con Object.hasOwn (PT-02).
+  if (!Object.hasOwn(ORDENES_COMPRA, orden)) {
+    throw peticionInvalida(
+      `"orden" debe ser uno de: ${Object.keys(ORDENES_COMPRA).join(", ")}.`,
+      { orden: valor },
+    );
+  }
+  return orden;
+};
+
+export type CompraCliente = {
+  periodo: string;
+  cod_material: number;
+  material: string;
+  categoria: string | null;
+  neto: number;
+  nota_credito: boolean;
+  total: number;
+};
+
+/** Cada fila de `ventas` es la compra de un material en un mes: el historial línea a línea. */
+export const comprasCliente = async (
+  codigo: number,
+  filtros: Filtros,
+  opciones: {
+    busqueda?: string;
+    orden: OrdenCompra;
+    direccion: "asc" | "desc";
+    pagina: number;
+    porPagina: number;
+  },
+): Promise<CompraCliente[]> => {
+  const existe = await consultar("SELECT 1 FROM clientes WHERE cod_cliente = $1", [codigo]);
+  if (!existe.rows.length) throw noEncontrado(`No existe el cliente ${codigo}.`);
+
+  const { where: w, params } = whereVentas(filtros);
+  const condiciones = [`v.cod_cliente = $${params.push(codigo)}`];
+  if (opciones.busqueda) {
+    condiciones.push(`strpos(lower(m.nombre), lower($${params.push(opciones.busqueda)})) > 0`);
+  }
+  params.push(opciones.porPagina, (opciones.pagina - 1) * opciones.porPagina);
+  const { rows } = await consultar<CompraCliente>(
+    `SELECT to_char(v.periodo, 'YYYY-MM') AS periodo, m.cod_material, m.nombre AS material,
+            m.categoria, v.neto::float8 AS neto, v.es_nota_credito AS nota_credito,
+            count(*) OVER ()::int AS total
+     FROM ventas v
+     JOIN materiales m ON m.cod_material = v.cod_material
+     JOIN cliente_asesor ca ON ca.cod_cliente = v.cod_cliente
+     JOIN asesores a ON a.cod_asesor = ca.cod_asesor
+     ${w ? `${w} AND` : "WHERE"} ${condiciones.join(" AND ")}
+     ORDER BY ${ORDENES_COMPRA[opciones.orden]} ${opciones.direccion.toUpperCase()},
+              v.periodo DESC, m.cod_material ASC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+  return rows;
 };

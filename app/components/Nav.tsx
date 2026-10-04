@@ -29,7 +29,7 @@ export default function Nav() {
 
   const items = (scope: "dock" | "top", esDock: boolean) =>
     NAV.map((item, index) => {
-      const isActive = pathname === item.href;
+      const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
       const isDock = esDock;
       const Icon = item.icon;
 

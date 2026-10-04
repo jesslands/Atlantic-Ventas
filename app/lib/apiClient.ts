@@ -120,6 +120,17 @@ export type FichaCliente = {
   ultima_compra: string;
   periodos: Array<{ periodo: string; neto: number; ventas: number; notas: number; monto_notas: number; clientes: number; ticket_mediano: number }>;
   materiales: { codigo: number; nombre: string; neto: number; ventas: number }[];
+  categorias: { categoria: string; neto: number; ventas: number }[];
+};
+
+/** Una línea del historial: la compra de un material en un mes. */
+export type Compra = {
+  periodo: string;
+  cod_material: number;
+  material: string;
+  categoria: string | null;
+  neto: number;
+  nota_credito: boolean;
 };
 
 type EstadoApi<T> = { datos: T | null; cargando: boolean; error: string | null };

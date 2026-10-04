@@ -298,6 +298,51 @@ export const openapi = {
               ultima_compra: { type: "string" },
               periodos: { type: "array", items: { type: "object" } },
               materiales: { type: "array", items: { type: "object" } },
+              categorias: {
+                type: "array",
+                items: objeto({ categoria: { type: "string" }, neto: NUMERO, ventas: ENTERO }),
+              },
+            }),
+          ),
+          ...ERRORES,
+        },
+      },
+    },
+    "/clientes/{codigo}/compras": {
+      get: {
+        tags: ["Clientes"],
+        summary: "Historial de compras de un cliente, linea a linea (mes x material)",
+        parameters: [
+          {
+            name: "codigo",
+            in: "path",
+            required: true,
+            schema: { type: "integer", example: 1000001 },
+            description: "Codigo numerico del cliente.",
+          },
+          ...PARAMETROS_FILTRO,
+          { name: "pagina", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 1 } },
+          { name: "porPagina", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "q", in: "query", schema: { type: "string", maxLength: 100 }, description: "Busqueda parcial por nombre de material." },
+          { name: "orden", in: "query", schema: { type: "string", enum: ["periodo", "neto", "material"], default: "periodo" } },
+          { name: "dir", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" } },
+        ],
+        responses: {
+          200: respuesta(
+            "Pagina de compras del cliente",
+            objeto({
+              paginacion: objeto({ pagina: ENTERO, porPagina: ENTERO, total: ENTERO }),
+              compras: {
+                type: "array",
+                items: objeto({
+                  periodo: { type: "string" },
+                  cod_material: ENTERO,
+                  material: { type: "string" },
+                  categoria: { type: ["string", "null"] },
+                  neto: NUMERO,
+                  nota_credito: { type: "boolean" },
+                }),
+              },
             }),
           ),
           ...ERRORES,
