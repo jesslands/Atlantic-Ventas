@@ -511,6 +511,40 @@ export const openapi = {
       },
     },
     "/cargas": {
+      get: {
+        tags: ["Carga"],
+        summary: "Filas que hay hoy en cada tabla",
+        responses: {
+          200: respuesta(
+            "Conteo actual",
+            objeto({
+              actual: objeto(
+                { ventas: ENTERO, clientes: ENTERO, materiales: ENTERO, asesores: ENTERO, asignaciones: ENTERO },
+                ["ventas", "clientes", "materiales", "asesores", "asignaciones"],
+              ),
+            }, ["actual"]),
+          ),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+      delete: {
+        tags: ["Carga"],
+        summary: "Borrar ventas y maestras",
+        description:
+          "Vacía ventas, clientes, materiales, asesores y asignaciones en una transacción. Conserva el esquema: después basta con volver a cargar el Excel. No se puede deshacer.",
+        responses: {
+          200: respuesta(
+            "Filas eliminadas por tabla",
+            objeto({
+              borrado: objeto({ ventas: ENTERO, clientes: ENTERO, materiales: ENTERO, asesores: ENTERO, asignaciones: ENTERO }),
+            }, ["borrado"]),
+          ),
+          409: respuesta("Hay una carga en curso", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
       post: {
         tags: ["Carga"],
         summary: "Cargar el libro de Excel con maestras y ventas",

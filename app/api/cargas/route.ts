@@ -3,6 +3,7 @@ import { open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { pool } from "@/app/lib/api/db";
 import { ApiError, manejar, peticionInvalida } from "@/app/lib/api/http";
 import { CargaCancelada, ejecutarPipeline } from "@/pipeline/ejecutar.mjs";
 import { LibroInvalido } from "@/pipeline/extract.mjs";
@@ -148,4 +149,47 @@ export const POST = manejar(async (request: Request) => {
       "X-Accel-Buffering": "no",
     },
   });
+});
+
+const CONTEO = `SELECT (SELECT count(*) FROM ventas)::int AS ventas,
+                       (SELECT count(*) FROM clientes)::int AS clientes,
+                       (SELECT count(*) FROM materiales)::int AS materiales,
+                       (SELECT count(*) FROM asesores)::int AS asesores,
+                       (SELECT count(*) FROM cliente_asesor)::int AS asignaciones`;
+
+type Conteo = { ventas: number; clientes: number; materiales: number; asesores: number; asignaciones: number };
+
+/** Filas que hay hoy en cada tabla: lo que se perderia al borrar. */
+export const GET = manejar(async () => {
+  const { rows } = await pool.query<Conteo>(CONTEO);
+  return Response.json({ actual: rows[0] });
+});
+
+/**
+ * Vacia las tablas de datos (ventas y maestras) en una transaccion. Conserva el
+ * esquema y schema_migrations: despues basta con volver a cargar el Excel.
+ * Comparte el candado con POST para no borrar en medio de una carga.
+ */
+export const DELETE = manejar(async () => {
+  if (estado.cargaEnCurso) {
+    throw new ApiError(409, "CARGA_EN_CURSO", "Hay una carga en curso. Espera a que termine o cancélala.");
+  }
+  estado.cargaEnCurso = true;
+  const cliente = await pool.connect().catch((error) => {
+    estado.cargaEnCurso = false;
+    throw error;
+  });
+  try {
+    await cliente.query("BEGIN");
+    const { rows } = await cliente.query<Conteo>(CONTEO);
+    await cliente.query("TRUNCATE ventas, cliente_asesor, clientes, materiales, asesores");
+    await cliente.query("COMMIT");
+    return Response.json({ borrado: rows[0] });
+  } catch (error) {
+    await cliente.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    cliente.release();
+    estado.cargaEnCurso = false;
+  }
 });
