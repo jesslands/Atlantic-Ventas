@@ -67,11 +67,12 @@ filtros opcionales:
 
 | Endpoint                | Devuelve                                                                              |
 |-------------------------|---------------------------------------------------------------------------------------|
-| `GET /kpis`             | Venta neta y bruta, transacciones, clientes activos, ticket promedio, notas crédito, % devoluciones y variación contra el mes anterior |
-| `GET /ventas/tendencia` | Serie mensual real + proyección por regresión lineal hasta diciembre                 |
+| `GET /kpis`             | Venta neta y bruta, transacciones, clientes activos, ticket promedio, notas crédito, ceros, atípicos (>$1M), % devoluciones y variación contra el mes anterior |
+| `GET /ventas/tendencia` | Serie mensual real (neto, ventas, notas, clientes, ticket mediano) + proyección por regresión lineal hasta diciembre |
 | `GET /ventas/sedes`     | Venta, clientes y participación por sede                                              |
 | `GET /asesores/ranking` | Ranking por venta neta con clientes, ticket medio y variación (`?limite=`, máx. 100)  |
-| `GET /clientes`         | Listado paginado con búsqueda (`?q=`), ordenamiento (`?orden=`, `?dir=`) y filtros     |
+| `GET /asesores/{codigo}`| Ficha del asesor: serie mensual y top 10 clientes por neto                           |
+| `GET /clientes`         | Listado paginado con búsqueda (`?q=`), ordenamiento (`?orden=`, `?dir=`) y filtros (tope `pagina` 2.000) |
 | `GET /clientes/{codigo}`| Ficha del cliente: serie mensual, top 8 materiales y primera/última compra            |
 
 Ejemplos:
@@ -297,6 +298,7 @@ app/
     ventas/tendencia/route.ts     GET  /ventas/tendencia
     ventas/sedes/route.ts         GET  /ventas/sedes
     asesores/ranking/route.ts     GET  /asesores/ranking
+    asesores/[codigo]/route.ts    GET  /asesores/{codigo}
     clientes/route.ts             GET  /clientes
     clientes/[codigo]/route.ts    GET  /clientes/{codigo}
     docs/route.ts                 GET  /api/docs            (Swagger UI)
@@ -305,7 +307,7 @@ app/
     analitica.ts                  regresión lineal y variación (funciones puras)
     repos/ventas.ts               queries de /kpis, /ventas/*
     repos/clientes.ts             queries de /clientes, /clientes/{codigo}
-    repos/asesores.ts             query de /asesores/ranking
+    repos/asesores.ts             queries de /asesores/ranking y /asesores/{codigo}
     db.ts                         pool de `pg`
     filtros.ts                    validación de la query string
     http.ts                       errores 400/404/500 y envoltorio de handlers
@@ -325,6 +327,17 @@ docker-compose.yml                Postgres + Next en producción
 
 > Ver también: `docs/arquitectura.md`, `docs/seguridad.md`, `docs/decisiones.md`.
 
-> **Al integrar la rama `UI`:** sus helpers `proyectar`/`variacion` de
-> `app/lib/analytics.ts` son equivalentes a los de `app/lib/api/analitica.ts`. Al unirlas
-> hay que dejar una sola copia (re-exportar) para no mantener el mismo cálculo en dos sitios.
+> **Frontend conectado a la API:** el dashboard (`app/components/dashboard/`) ya no
+> calcula nada localmente a partir de un dataset generado en el navegador — pide
+> `/api/kpis`, `/api/ventas/tendencia`, `/api/ventas/sedes`, `/api/asesores/ranking`,
+> `/api/asesores/{codigo}`, `/api/clientes` y `/api/clientes/{codigo}` directamente
+> (`app/lib/apiClient.ts`). La única pieza que sigue viviendo en los dos lados es
+> `variacion()`, una fórmula de una línea: se deja duplicada a propósito porque el
+> cliente no puede importar `app/lib/api/*` (ese código asume runtime de servidor).
+> `proyectar()` ya no tiene copia en el cliente: `/ventas/tendencia` devuelve la
+> proyección ya calculada.
+>
+> El filtro de **material** del dashboard de demostración no tiene equivalente hoy:
+> ningún endpoint de resumen filtra por material (solo `/clientes/{codigo}` devuelve
+> el top 8 de materiales de un cliente puntual), así que se quitó del selector de
+> filtros en vez de dejar un control que no hace nada contra datos reales.

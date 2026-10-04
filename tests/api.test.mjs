@@ -289,7 +289,18 @@ test("GET /ventas/tendencia devuelve la serie real y proyecta hasta diciembre", 
 
 test("GET /ventas/tendencia con un solo mes no proyecta", async () => {
   const { cuerpo } = await pedir("/api/ventas/tendencia?desde=2090-01&hasta=2090-01");
-  assert.deepEqual(cuerpo.serie, [{ periodo: "2090-01", real: 1000, proyeccion: null }]);
+  assert.deepEqual(cuerpo.serie, [
+    {
+      periodo: "2090-01",
+      real: 1000,
+      proyeccion: null,
+      ventas: 1,
+      notas: 0,
+      montoNotas: 0,
+      clientes: 1,
+      ticketMediano: 1000,
+    },
+  ]);
 });
 
 test("GET /ventas/tendencia sobre el dataset real cubre los 6 periodos y proyecta a diciembre", async () => {
@@ -358,6 +369,21 @@ test("GET /clientes/[codigo] devuelve la ficha con historial y responde 404 si n
   assert.equal(ausente.status, 404);
 });
 
+test("GET /asesores/[codigo] devuelve la ficha con historial y responde 404 si no existe", async () => {
+  const { respuesta, cuerpo } = await pedir(`/api/asesores/ase-901?${RANGO}`);
+  assert.equal(respuesta.status, 200, "el codigo no distingue mayusculas");
+  assert.equal(cuerpo.asesor.codigo, "ASE-901");
+  assert.equal(cuerpo.neto, 2200);
+  assert.equal(cuerpo.ventas, 3);
+  assert.equal(cuerpo.clientes.length, 2);
+
+  const { respuesta: invalido } = await pedir("/api/asesores/no-existe");
+  assert.equal(invalido.status, 400);
+
+  const { respuesta: ausente } = await pedir("/api/asesores/ASE-999");
+  assert.equal(ausente.status, 404);
+});
+
 test("el API responde con cabeceras de seguridad (helmet) y límite de peticiones", async () => {
   const respuesta = await fetch(`${BASE}/api/kpis?${RANGO}`);
   assert.equal(respuesta.headers.get("x-content-type-options"), "nosniff");
@@ -387,11 +413,12 @@ test("el rate limit responde 429 + Retry-After al superar el límite", async () 
   assert.equal(cuerpo.error.codigo, "DEMASIADAS_SOLICITUDES");
 });
 
-test("GET /api/docs/openapi.json documenta los seis endpoints", async () => {
+test("GET /api/docs/openapi.json documenta los siete endpoints", async () => {
   const { respuesta, cuerpo } = await pedir("/api/docs/openapi.json");
   assert.equal(respuesta.status, 200);
   assert.deepEqual(Object.keys(cuerpo.paths).sort(), [
     "/asesores/ranking",
+    "/asesores/{codigo}",
     "/clientes",
     "/clientes/{codigo}",
     "/kpis",
@@ -477,6 +504,7 @@ test("el JSON de cada endpoint cumple el contrato OpenAPI", async () => {
     { ruta: `/api/ventas/tendencia?${RANGO}`, path: "/ventas/tendencia" },
     { ruta: `/api/ventas/sedes?desde=2026-01&hasta=2026-06`, path: "/ventas/sedes" },
     { ruta: `/api/asesores/ranking?desde=2026-01&hasta=2026-06`, path: "/asesores/ranking" },
+    { ruta: `/api/asesores/ASE-001?desde=2026-01&hasta=2026-06`, path: "/asesores/{codigo}" },
     { ruta: `/api/clientes?porPagina=5&pagina=1`, path: "/clientes" },
     { ruta: `/api/clientes/${CLIENTE_A}`, path: "/clientes/{codigo}" },
   ];

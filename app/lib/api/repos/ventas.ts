@@ -57,6 +57,8 @@ type ResumenKpi = {
   ticket_promedio: number;
   notas_credito: number;
   monto_notas: number;
+  ceros: number;
+  atipicos: number;
 };
 
 export type Kpis = ResumenKpi & {
@@ -75,7 +77,9 @@ export const kpis = async (filtros: Filtros): Promise<Kpis> => {
             count(DISTINCT v.cod_cliente) FILTER (WHERE v.neto > 0)::int AS clientes_activos,
             coalesce(avg(v.neto), 0)::float8 AS ticket_promedio,
             count(*) FILTER (WHERE v.neto < 0)::int AS notas_credito,
-            coalesce(sum(v.neto) FILTER (WHERE v.neto < 0), 0)::float8 AS monto_notas
+            coalesce(sum(v.neto) FILTER (WHERE v.neto < 0), 0)::float8 AS monto_notas,
+            count(*) FILTER (WHERE v.neto = 0)::int AS ceros,
+            count(*) FILTER (WHERE v.neto > 1000000)::int AS atipicos
      ${desdeVentas(filtros)} ${w}`,
       params,
     ),
