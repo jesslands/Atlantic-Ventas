@@ -1,84 +1,36 @@
-import { randomUUID } from "node:crypto";
-import { open, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { pool } from "@/app/lib/api/db";
 import { ApiError, manejar, peticionInvalida } from "@/app/lib/api/http";
+import { archivoCompleto, borrarSubida } from "@/app/lib/api/subidas";
 import { CargaCancelada, ejecutarPipeline } from "@/pipeline/ejecutar.mjs";
 import { LibroInvalido } from "@/pipeline/extract.mjs";
 
 export const dynamic = "force-dynamic";
 
-// Debe coincidir con experimental.proxyClientMaxBodySize en next.config.ts:
-// el proxy solo deja pasar hasta ese tamano.
-const TAMANO_MAXIMO = 50 * 1024 * 1024;
-const ZIP = [0x50, 0x4b, 0x03, 0x04];
-
 // Una sola carga a la vez por instancia: dos transacciones escribiendo las
 // mismas filas se bloquearian entre si y la segunda pisaria a la primera.
 const estado = globalThis as unknown as { cargaEnCurso?: boolean };
 
-const guardarCuerpo = async (request: Request, destino: string, declarado: number) => {
-  if (!request.body) throw peticionInvalida("No se recibió ningún archivo.");
-  const archivo = await open(destino, "w");
-  let total = 0;
-  try {
-    for await (const chunk of request.body as unknown as AsyncIterable<Uint8Array>) {
-      total += chunk.length;
-      if (total > TAMANO_MAXIMO) {
-        throw new ApiError(413, "ARCHIVO_DEMASIADO_GRANDE", "El archivo supera los 50 MB.");
-      }
-      await archivo.write(chunk);
-    }
-  } finally {
-    await archivo.close();
-  }
-  if (total === 0) throw peticionInvalida("El archivo está vacío.");
-  // Si algo en el camino corta el cuerpo (p. ej. el limite del proxy), llegan
-  // menos bytes de los anunciados: mejor fallar aqui que procesar medio libro.
-  if (declarado && total !== declarado) {
-    throw peticionInvalida(
-      `El archivo llegó incompleto (${total} de ${declarado} bytes). Inténtalo de nuevo.`,
-    );
-  }
-
-  const cabecera = Buffer.alloc(4);
-  const lectura = await open(destino, "r");
-  await lectura.read(cabecera, 0, 4, 0).finally(() => lectura.close());
-  if (!ZIP.every((byte, i) => cabecera[i] === byte)) {
-    throw peticionInvalida("El contenido no corresponde a un libro de Excel (.xlsx).");
-  }
-};
-
 /**
- * Recibe el .xlsx como cuerpo crudo y responde NDJSON: una linea por avance
- * ({ tipo: "progreso", etapa, pct, detalle }) y una final ("listo", "cancelado"
- * o "error"). Si el cliente corta la conexion, el pipeline se aborta y la
- * transaccion hace ROLLBACK.
+ * Procesa un libro ya subido por partes (POST /api/cargas/subidas) y responde
+ * NDJSON: una linea por avance ({ tipo: "progreso", etapa, pct, detalle }) y
+ * una final ("listo", "cancelado" o "error"). Si el cliente corta la conexion,
+ * el pipeline se aborta y la transaccion hace ROLLBACK. Al terminar, de
+ * cualquier forma, el archivo subido se borra.
  */
 export const POST = manejar(async (request: Request) => {
-  const declarado = Number(request.headers.get("content-length") ?? 0);
-  if (declarado > TAMANO_MAXIMO) {
-    throw new ApiError(413, "ARCHIVO_DEMASIADO_GRANDE", "El archivo supera los 50 MB.");
-  }
+  const cuerpoPeticion = await request.json().catch(() => null);
+  const subida = cuerpoPeticion?.subida;
+  if (typeof subida !== "string") throw peticionInvalida('Falta "subida": el id que devolvió /api/cargas/subidas.');
+  const archivo = await archivoCompleto(subida);
+
   if (estado.cargaEnCurso) {
     throw new ApiError(409, "CARGA_EN_CURSO", "Ya hay una carga en curso. Espera a que termine o cancélala.");
   }
   estado.cargaEnCurso = true;
-
-  const temporal = join(tmpdir(), `atlantic-carga-${randomUUID()}.xlsx`);
   const liberar = async () => {
     estado.cargaEnCurso = false;
-    await rm(temporal, { force: true });
+    await borrarSubida(subida);
   };
-
-  try {
-    await guardarCuerpo(request, temporal, declarado);
-  } catch (error) {
-    await liberar();
-    throw error;
-  }
 
   const cancelar = new AbortController();
   request.signal.addEventListener("abort", () => cancelar.abort(), { once: true });
@@ -95,7 +47,7 @@ export const POST = manejar(async (request: Request) => {
       let ultimo = { etapa: "", pct: -1, detalle: "" };
       try {
         const reporte = await ejecutarPipeline({
-          archivo: temporal,
+          archivo,
           raiz: process.cwd(),
           databaseUrl: process.env.DATABASE_URL,
           signal: cancelar.signal,

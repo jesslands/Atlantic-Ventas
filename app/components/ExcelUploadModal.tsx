@@ -17,6 +17,8 @@ import toast from "react-hot-toast";
 import type { ErrorApi } from "../lib/apiClient";
 import { useModalUpload, usePegado } from "../lib/ui";
 
+// Igual que TAMANO_MAXIMO en app/lib/api/subidas.ts.
+const TAMANO_MAXIMO = 1.5 * 1024 ** 3;
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
 const OLE_MAGIC = [0xd0, 0xcf, 0x11, 0xe0];
 
@@ -39,6 +41,7 @@ export async function validateXlsx(file: File): Promise<string | null> {
   }
 
   if (file.size === 0) return "El archivo está vacío.";
+  if (file.size > TAMANO_MAXIMO) return "El archivo supera el máximo de 1,5 GB.";
 
   return null;
 }
@@ -79,74 +82,208 @@ type EventoFinal = Exclude<EventoCarga, { tipo: "progreso" }>;
 
 class CargaCancelada extends Error {}
 
+const esperar = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolver, rechazar) => {
+    const temporizador = setTimeout(resolver, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(temporizador);
+        rechazar(new CargaCancelada());
+      },
+      { once: true },
+    );
+  });
+
+const mensajeError = (texto: string, status: number) => {
+  try {
+    return (JSON.parse(texto).error as ErrorApi | undefined) ?? null;
+  } catch {
+    return status ? { codigo: "HTTP", mensaje: `Error inesperado (${status}).` } : null;
+  }
+};
+
+type RespuestaParte = { status: number; texto: string; reintentarEn: number };
+
 /**
- * XMLHttpRequest y no fetch: es la unica forma de medir el avance de la subida.
- * El servidor responde NDJSON, que se va leyendo de responseText a medida que
- * llega. `cancelar` corta la conexion; el servidor lo detecta, aborta el
- * pipeline y hace ROLLBACK.
+ * Una parte por XMLHttpRequest y no fetch: es la unica forma de medir el avance
+ * mientras los bytes salen del navegador.
+ */
+function enviarParte(
+  url: string,
+  parte: Blob,
+  signal: AbortSignal,
+  alEnviar: (bytes: number) => void,
+) {
+  return new Promise<RespuestaParte>((resolver, rechazar) => {
+    const xhr = new XMLHttpRequest();
+    const abortar = () => xhr.abort();
+    signal.addEventListener("abort", abortar, { once: true });
+    const terminar = () => signal.removeEventListener("abort", abortar);
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (evento) => alEnviar(evento.loaded);
+    xhr.onload = () => {
+      terminar();
+      resolver({
+        status: xhr.status,
+        texto: xhr.responseText,
+        reintentarEn: Number(xhr.getResponseHeader("Retry-After") ?? 0) * 1000,
+      });
+    };
+    // Error de red: se trata como reintentable (status 0).
+    xhr.onerror = () => {
+      terminar();
+      resolver({ status: 0, texto: "", reintentarEn: 0 });
+    };
+    xhr.onabort = () => {
+      terminar();
+      rechazar(new CargaCancelada());
+    };
+    xhr.send(parte);
+  });
+}
+
+const REINTENTOS = 5;
+
+/**
+ * Sube el libro en partes (ver app/lib/api/subidas.ts) y luego pide procesarlo;
+ * el servidor responde NDJSON con el avance del pipeline. Cada parte que falla
+ * por red, 5xx o limite de peticiones se reintenta sin reiniciar la subida.
+ * `cancelar` corta lo que este en curso: si ya se estaba procesando, el
+ * servidor aborta el pipeline y hace ROLLBACK.
  */
 function subirExcel(archivo: File, alAvanzar: (evento: Extract<EventoCarga, { tipo: "progreso" }>) => void) {
-  const xhr = new XMLHttpRequest();
-  const promesa = new Promise<Resumen>((resolver, rechazar) => {
-    let leido = 0;
-    let final: EventoFinal | null = null;
+  const controlador = new AbortController();
+  const { signal } = controlador;
+  let subida: string | null = null;
+  let procesando = false;
 
-    const procesar = () => {
-      const texto = xhr.responseText;
-      const corte = texto.lastIndexOf("\n");
-      if (corte < leido) return;
-      for (const linea of texto.slice(leido, corte).split("\n")) {
+  const pedir = async (url: string, init?: RequestInit) => {
+    const respuesta = await fetch(url, { ...init, signal }).catch((fallo: unknown) => {
+      if (signal.aborted) throw new CargaCancelada();
+      throw fallo;
+    });
+    if (!respuesta.ok) {
+      const error = mensajeError(await respuesta.text(), respuesta.status);
+      throw new Error(error?.mensaje ?? `Error inesperado (${respuesta.status}).`);
+    }
+    return respuesta;
+  };
+
+  const subir = async () => {
+    const abierta = (await (
+      await pedir("/api/cargas/subidas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tamano: archivo.size }),
+      })
+    ).json()) as { id: string; tamano_parte: number };
+    subida = abierta.id;
+
+    let desde = 0;
+    let fallos = 0;
+    while (desde < archivo.size) {
+      const parte = archivo.slice(desde, desde + abierta.tamano_parte);
+      const base = desde;
+      const { status, texto, reintentarEn } = await enviarParte(
+        `/api/cargas/subidas/${subida}?desde=${desde}`,
+        parte,
+        signal,
+        (enviados) =>
+          alAvanzar({
+            tipo: "progreso",
+            etapa: "subiendo",
+            pct: ((base + enviados) / archivo.size) * 100,
+            detalle: `${formatSize(base + enviados)} de ${formatSize(archivo.size)}`,
+          }),
+      );
+      if (status === 200) {
+        desde = (JSON.parse(texto) as { recibido: number }).recibido;
+        fallos = 0;
+        continue;
+      }
+      const error = mensajeError(texto, status);
+      // Un reintento de una parte que si habia llegado: seguir desde donde
+      // quedo el servidor.
+      if (status === 409 && error?.codigo === "DESFASE") {
+        desde = Number(error.detalles?.recibido ?? desde);
+        continue;
+      }
+      const reintentable = status === 0 || status === 429 || status >= 500 || status === 400;
+      if (!reintentable || ++fallos > REINTENTOS) {
+        throw new Error(error?.mensaje ?? "No se pudo subir el archivo. Revisa la conexión e inténtalo de nuevo.");
+      }
+      const espera = Math.max(reintentarEn, 1000 * 2 ** (fallos - 1));
+      alAvanzar({
+        tipo: "progreso",
+        etapa: "subiendo",
+        pct: (desde / archivo.size) * 100,
+        detalle:
+          status === 429
+            ? `Servidor ocupado; se reanuda en ${Math.round(espera / 1000)} s…`
+            : `Reintentando (${fallos} de ${REINTENTOS})…`,
+      });
+      await esperar(espera, signal);
+    }
+  };
+
+  const procesar = async () => {
+    const respuesta = await pedir("/api/cargas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subida }),
+    });
+    // Desde aqui el servidor es dueno del archivo y lo borra al terminar.
+    procesando = true;
+    const lector = respuesta.body!.pipeThrough(new TextDecoderStream()).getReader();
+    let pendiente = "";
+    let final: EventoFinal | null = null;
+    while (true) {
+      const { value, done } = await lector.read().catch((fallo: unknown) => {
+        if (signal.aborted) throw new CargaCancelada();
+        throw fallo;
+      });
+      if (done) break;
+      pendiente += value;
+      const lineas = pendiente.split("\n");
+      pendiente = lineas.pop() ?? "";
+      for (const linea of lineas) {
         if (!linea.trim()) continue;
         const evento = JSON.parse(linea) as EventoCarga;
         if (evento.tipo === "progreso") alAvanzar(evento);
         else final = evento;
       }
-      leido = corte + 1;
-    };
+    }
+    return final as EventoFinal | null;
+  };
 
-    xhr.open("POST", "/api/cargas");
-    xhr.setRequestHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
-    xhr.upload.onprogress = (evento) => {
-      if (!evento.lengthComputable) return;
-      alAvanzar({
-        tipo: "progreso",
-        etapa: "subiendo",
-        pct: (evento.loaded / evento.total) * 100,
-        detalle: `${formatSize(evento.loaded)} de ${formatSize(evento.total)}`,
-      });
-    };
-    xhr.onprogress = () => {
-      if (xhr.status === 200) procesar();
-    };
-    xhr.onload = () => {
-      if (xhr.status !== 200) {
-        let mensaje = `Error inesperado (${xhr.status}).`;
-        try {
-          mensaje = JSON.parse(xhr.responseText).error?.mensaje ?? mensaje;
-        } catch {}
-        rechazar(new Error(mensaje));
-        return;
+  const promesa = (async (): Promise<Resumen> => {
+    try {
+      await subir();
+      const ultimo = await procesar();
+      if (ultimo?.tipo === "listo") return ultimo;
+      if (ultimo?.tipo === "cancelado") throw new CargaCancelada();
+      throw new Error(ultimo?.mensaje ?? "La carga se interrumpió antes de terminar.");
+    } catch (fallo) {
+      // Si no se llego a procesar, el servidor no borra la subida: se descarta
+      // aqui para no dejar el archivo a medias en disco.
+      if (subida && !procesando) {
+        fetch(`/api/cargas/subidas/${subida}`, { method: "DELETE" }).catch(() => {});
       }
-      procesar();
-      const ultimo = final as EventoFinal | null;
-      if (ultimo?.tipo === "listo") resolver(ultimo);
-      else if (ultimo?.tipo === "cancelado") rechazar(new CargaCancelada());
-      else rechazar(new Error(ultimo?.mensaje ?? "La carga se interrumpió antes de terminar."));
-    };
-    xhr.onerror = () => rechazar(new Error("Se perdió la conexión con el servidor."));
-    xhr.onabort = () => rechazar(new CargaCancelada());
-    xhr.send(archivo);
-  });
-  return { promesa, cancelar: () => xhr.abort() };
+      throw fallo;
+    }
+  })();
+
+  return { promesa, cancelar: () => controlador.abort() };
 }
 
 const formatSize = (bytes: number) =>
   bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
-    : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    : bytes < 1024 ** 3
+      ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+      : `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 
 export default function ExcelUploadModal() {
   const [isOpen, setIsOpen] = useModalUpload();
@@ -357,7 +494,7 @@ export default function ExcelUploadModal() {
                         Arrastra el archivo aquí o haz clic para seleccionarlo
                       </span>
                       <span className="text-sm text-foreground/60">
-                        Solo se aceptan libros .xlsx
+                        Solo libros .xlsx, hasta 1,5 GB
                       </span>
                     </button>
                   )}

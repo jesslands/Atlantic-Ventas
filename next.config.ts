@@ -9,9 +9,10 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   experimental: {
     // proxy.ts corre sobre /api y Next guarda en memoria el cuerpo de cada
-    // peticion que pasa por el; por defecto corta en 10 MB y el libro de ventas
-    // pesa mas. Mismo tope que valida POST /api/cargas.
-    proxyClientMaxBodySize: "50mb",
+    // peticion que pasa por el (por defecto corta en 10 MB). El Excel sube en
+    // partes de 32 MB (TAMANO_PARTE en app/lib/api/subidas.ts): este tope solo
+    // tiene que cubrir una parte, no el archivo entero.
+    proxyClientMaxBodySize: "40mb",
   },
 };
 

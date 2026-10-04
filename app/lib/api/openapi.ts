@@ -547,14 +547,14 @@ export const openapi = {
       },
       post: {
         tags: ["Carga"],
-        summary: "Cargar el libro de Excel con maestras y ventas",
+        summary: "Procesar un libro ya subido y cargarlo en Postgres",
         description:
-          "Recibe el .xlsx como cuerpo crudo (máximo 50 MB) y corre el pipeline de limpieza y carga en una sola transacción. Responde NDJSON: una línea `progreso` por avance y una línea final `listo`, `cancelado` o `error`. Si el cliente corta la conexión, el pipeline se detiene y la base queda sin cambios. Solo se admite una carga a la vez.",
+          "Recibe `{ subida }`, el id de una subida completa (ver `/cargas/subidas`), y corre el pipeline de limpieza y carga en una sola transacción. Responde NDJSON: una línea `progreso` por avance y una línea final `listo`, `cancelado` o `error`. Si el cliente corta la conexión, el pipeline se detiene y la base queda sin cambios. Solo se admite una carga a la vez; al terminar, el archivo subido se borra.",
         requestBody: {
           required: true,
           content: {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
-              schema: { type: "string", format: "binary" },
+            "application/json": {
+              schema: objeto({ subida: { type: "string", format: "uuid" } }, ["subida"]),
             },
           },
         },
@@ -581,12 +581,63 @@ export const openapi = {
               },
             },
           },
-          400: respuesta("El archivo no es un .xlsx válido o está vacío", ERROR),
-          409: respuesta("Ya hay una carga en curso", ERROR),
-          413: respuesta("El archivo supera los 50 MB", ERROR),
+          400: respuesta("Falta el id de la subida", ERROR),
+          404: respuesta("La subida no existe o venció", ERROR),
+          409: respuesta("Ya hay una carga en curso, o la subida no está completa", ERROR),
           429: ERRORES[429],
           500: ERRORES[500],
         },
+      },
+    },
+    "/cargas/subidas": {
+      post: {
+        tags: ["Carga"],
+        summary: "Abrir una subida por partes del libro de Excel",
+        description:
+          "El libro (hasta 1,5 GB) se sube en partes de `tamano_parte` bytes con `PUT /cargas/subidas/{id}`. Una subida sin actividad durante una hora se descarta.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: objeto({ tamano: ENTERO }, ["tamano"]) } },
+        },
+        responses: {
+          201: respuesta(
+            "Subida abierta",
+            objeto({ id: { type: "string", format: "uuid" }, tamano: ENTERO, tamano_parte: ENTERO }, ["id", "tamano", "tamano_parte"]),
+          ),
+          400: ERRORES[400],
+          413: respuesta("El archivo supera 1,5 GB", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+    },
+    "/cargas/subidas/{id}": {
+      put: {
+        tags: ["Carga"],
+        summary: "Anexar una parte a la subida",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "desde", in: "query", required: true, schema: ENTERO, description: "Bytes ya recibidos: la parte debe continuar exactamente ahí." },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+        },
+        responses: {
+          200: respuesta("Parte recibida", objeto({ recibido: ENTERO, tamano: ENTERO }, ["recibido", "tamano"])),
+          400: respuesta("La parte llegó incompleta", ERROR),
+          404: respuesta("La subida no existe o venció", ERROR),
+          409: respuesta("`desde` no coincide con lo recibido; `detalles.recibido` dice desde dónde seguir", ERROR),
+          413: respuesta("La parte excede el tamaño permitido", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+      delete: {
+        tags: ["Carga"],
+        summary: "Descartar una subida",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { 204: { description: "Subida descartada" }, 404: ERRORES[404], 429: ERRORES[429] },
       },
     },
   },
