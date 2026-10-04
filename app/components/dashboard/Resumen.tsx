@@ -43,6 +43,69 @@ const columnasClientes: Columna<ClienteListado>[] = [
   { clave: "neto", titulo: "Neto", valor: (f) => f.neto, numerica: true, barra: true },
 ];
 
+const nf2 = new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * Explica la linea punteada con las cifras del filtro actual. Rehace la misma
+ * recta que `proyectar()` (app/lib/api/analitica.ts) solo para mostrar su
+ * pendiente y su R²; el metodo completo esta en docs/prediccion.md.
+ */
+function ComoSeProyecta({ serie }: { serie: PuntoTendencia[] }) {
+  const reales = serie.filter((p) => p.real !== null).map((p) => p.real as number);
+  const futuros = serie.filter((p) => p.real === null && p.proyeccion !== null);
+  const n = reales.length;
+  if (n < 2 || !futuros.length) return null;
+
+  const mediaX = (n - 1) / 2;
+  const mediaY = reales.reduce((a, b) => a + b, 0) / n;
+  let cov = 0;
+  let varX = 0;
+  reales.forEach((y, i) => {
+    cov += (i - mediaX) * (y - mediaY);
+    varX += (i - mediaX) ** 2;
+  });
+  const pendiente = cov / varX;
+  const intercepto = mediaY - pendiente * mediaX;
+  const residual = reales.reduce((s, y, i) => s + (y - (intercepto + pendiente * i)) ** 2, 0);
+  const total = reales.reduce((s, y) => s + (y - mediaY) ** 2, 0);
+  const r2 = total ? 1 - residual / total : 0;
+
+  const acumulado = reales.reduce((a, b) => a + b, 0);
+  const cierreTendencia = acumulado + futuros.reduce((s, p) => s + (p.proyeccion ?? 0), 0);
+  const ultimos = reales.slice(-3);
+  const ritmo = ultimos.reduce((a, b) => a + b, 0) / ultimos.length;
+  const cierreConservador = acumulado + ritmo * futuros.length;
+  const ultimoMes = futuros.at(-1)!.periodo;
+
+  return (
+    <details className="group mt-4 border-t border-linea pt-3 text-xs leading-5 text-tinta-3">
+      <summary className="cursor-pointer select-none font-medium text-foreground/80 hover:text-foreground">
+        ¿Cómo se calcula la proyección?
+      </summary>
+      <div className="mt-2 max-w-prose space-y-2">
+        <p>
+          La línea punteada es una <strong>recta de mínimos cuadrados</strong> trazada sobre la venta
+          neta de los {n} meses reales del filtro y prolongada hasta {mesLargo(ultimoMes)}. Cada mes{" "}
+          {pendiente < 0 ? "resta" : "suma"} <strong>{moneyCompacto(Math.abs(pendiente))}</strong> al
+          anterior. No tiene en cuenta estacionalidad: con {n} meses de historia todavía no se puede medir.
+        </p>
+        <p>
+          {r2 >= 0.7 ? "El ajuste es bueno" : r2 >= 0.4 ? "El ajuste es moderado" : "El ajuste es débil"}{" "}
+          (<strong>R² = {nf2.format(r2)}</strong>): la recta explica el {Math.round(r2 * 100)} % de la
+          variación entre meses.
+          {r2 < 0.7 && " Conviene leerla como una dirección y no como una cifra exacta."}
+        </p>
+        <p>
+          Lo real del filtro más lo proyectado hasta {mesLargo(ultimoMes)}, siguiendo la tendencia:{" "}
+          <strong className="text-foreground">{moneyCompacto(cierreTendencia)}</strong>. Si se mantiene el
+          promedio de los últimos {ultimos.length} meses ({moneyCompacto(ritmo)} por mes), escenario
+          conservador: <strong className="text-foreground">{moneyCompacto(cierreConservador)}</strong>.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 const DESCRIPCION =
   "Ventas del primer semestre de 2026 frente al mes anterior, con proyección lineal a diciembre.";
 
@@ -128,6 +191,7 @@ export default function Resumen() {
               />
             </div>
             <GraficoTendencia datos={serie} />
+            <ComoSeProyecta serie={serie} />
           </Tarjeta>
 
         </div>
