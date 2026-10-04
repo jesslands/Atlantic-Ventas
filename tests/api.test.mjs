@@ -134,12 +134,7 @@ test("el runner de migraciones es idempotente", async () => {
   await correr();
   await correr();
 
-  const { rows } = await sql(
-    `SELECT id FROM aplicada_aplicada`,
-  ).catch(async () => {
-    const r = await sql(`SELECT id FROM schema_migrations ORDER BY id`);
-    return r;
-  });
+  const { rows } = await sql(`SELECT id FROM schema_migrations ORDER BY id`);
   const ids = rows.map((fila) => fila.id);
   assert.ok(ids.length > 0, "debe haber al menos una migracion aplicada");
   assert.equal(new Set(ids).size, ids.length, "no hay migraciones duplicadas");
