@@ -6,6 +6,7 @@ import Header from "./components/Header";
 import Motion from "./components/Motion";
 import Preloader from "./components/Preloader";
 import ExcelUploadModal from "./components/ExcelUploadModal";
+import Footer from "./components/Footer";
 import "./globals.css";
 
 const display = Bodoni_Moda({
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <BarraMovil />
           <Header />
           {children}
+          <Footer />
         </Motion>
         <Toaster
           position="top-center"
