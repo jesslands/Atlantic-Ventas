@@ -7,11 +7,14 @@ import {
   FileSpreadsheet,
   LoaderCircle,
   RefreshCw,
+  Trash2,
+  TriangleAlert,
   UploadCloud,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import type { ErrorApi } from "../lib/apiClient";
 import { useModalUpload, usePegado } from "../lib/ui";
 
 const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
@@ -155,6 +158,7 @@ export default function ExcelUploadModal() {
   const [carga, setCarga] = useState<Carga>({ estado: "inactiva" });
   const cancelarRef = useRef<(() => void) | null>(null);
   const enCurso = carga.estado === "en_curso";
+  const [vistaBorrar, setVistaBorrar] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -275,134 +279,150 @@ export default function ExcelUploadModal() {
                     archivo antes de procesarlo.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  aria-label="Cerrar"
-                  autoFocus
-                  className="-mt-1 -mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground"
-                >
-                  <X aria-hidden="true" className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="mt-8">
-                {file ? (
-                  <div className="flex items-center gap-4 rounded-2xl border border-brand/20 bg-brand/5 p-5">
-                    <FileSpreadsheet
-                      aria-hidden="true"
-                      className="h-8 w-8 shrink-0 text-[#c28e4b]"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{file.name}</p>
-                      <p className="text-sm text-foreground/60">
-                        {formatSize(file.size)} · Formato verificado
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={reset}
-                      disabled={enCurso}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-                      aria-label={`Quitar ${file.name}`}
-                    >
-                      <X aria-hidden="true" className="h-5 w-5" />
-                    </button>
-                  </div>
-                ) : (
+                <div className="-mt-1 -mr-1 flex shrink-0 items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => inputRef.current?.click()}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setIsDragging(true);
-                    }}
-                    onDragLeave={() => setIsDragging(false)}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      setIsDragging(false);
-                      accept(event.dataTransfer.files[0]);
-                    }}
-                    aria-describedby={error ? "excel-upload-error" : undefined}
-                    className={`flex w-full flex-col items-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 transition-colors ${
-                      isDragging
-                        ? "border-brand bg-brand/10"
-                        : "border-foreground/20 hover:border-brand/50 hover:bg-foreground/5"
-                    }`}
+                    onClick={() => setVistaBorrar(true)}
+                    disabled={enCurso || vistaBorrar}
+                    aria-label="Borrar los datos actuales"
+                    title="Borrar los datos actuales"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-red-800/10 hover:text-red-800 disabled:pointer-events-none disabled:opacity-30"
                   >
-                    <UploadCloud
-                      aria-hidden="true"
-                      className="h-10 w-10 text-brand"
-                    />
-                    <span className="text-center font-medium">
-                      Arrastra el archivo aquí o haz clic para seleccionarlo
-                    </span>
-                    <span className="text-sm text-foreground/60">
-                      Solo se aceptan libros .xlsx
-                    </span>
+                    <Trash2 aria-hidden="true" className="h-5 w-5" />
                   </button>
-                )}
-
-                <input
-                  ref={inputRef}
-                  type="file"
-                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  className="sr-only"
-                  onChange={(event) => {
-                    accept(event.target.files?.[0]);
-                  }}
-                />
-
-                {error && (
-                  <p
-                    id="excel-upload-error"
-                    role="alert"
-                    className="mt-4 text-sm leading-6 text-red-800"
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    aria-label="Cerrar"
+                    autoFocus
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground"
                   >
-                    {error}
-                  </p>
-                )}
+                    <X aria-hidden="true" className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
 
-                {file && carga.estado !== "inactiva" && (
-                  <ProgresoCarga carga={carga} />
-                )}
-
-                {file && (
-                  <div className="mt-6 flex flex-wrap justify-end gap-3">
-                    {carga.estado === "lista" && (
+              {vistaBorrar ? (
+                <BorrarDatos onVolver={() => setVistaBorrar(false)} />
+              ) : (
+                <div className="mt-8">
+                  {file ? (
+                    <div className="flex items-center gap-4 rounded-2xl border border-brand/20 bg-brand/5 p-5">
+                      <FileSpreadsheet
+                        aria-hidden="true"
+                        className="h-8 w-8 shrink-0 text-[#c28e4b]"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{file.name}</p>
+                        <p className="text-sm text-foreground/60">
+                          {formatSize(file.size)} · Formato verificado
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => window.location.reload()}
-                        className="flex h-11 items-center gap-2 rounded-full px-6 font-medium text-foreground/80 transition-colors hover:bg-foreground/10"
+                        onClick={reset}
+                        disabled={enCurso}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                        aria-label={`Quitar ${file.name}`}
                       >
-                        <RefreshCw aria-hidden="true" className="h-4 w-4" />
-                        Ver datos actualizados
+                        <X aria-hidden="true" className="h-5 w-5" />
                       </button>
-                    )}
-                    {enCurso && (
-                      <button
-                        type="button"
-                        onClick={() => cancelarRef.current?.()}
-                        className="h-11 rounded-full border border-red-800/30 px-8 font-medium text-red-800 transition-colors hover:bg-red-800/10"
-                      >
-                        Cancelar
-                      </button>
-                    )}
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={cargar}
-                      disabled={enCurso}
-                      aria-busy={enCurso}
-                      className="flex h-11 items-center gap-2 rounded-full bg-[#1f1f1f] px-8 font-medium text-background transition-opacity hover:opacity-85 active:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => inputRef.current?.click()}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setIsDragging(false);
+                        accept(event.dataTransfer.files[0]);
+                      }}
+                      aria-describedby={error ? "excel-upload-error" : undefined}
+                      className={`flex w-full flex-col items-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 transition-colors ${
+                        isDragging
+                          ? "border-brand bg-brand/10"
+                          : "border-foreground/20 hover:border-brand/50 hover:bg-foreground/5"
+                      }`}
                     >
-                      {enCurso && (
-                        <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
-                      )}
-                      {enCurso ? "Cargando…" : carga.estado === "lista" ? "Cargar de nuevo" : "Cargar"}
+                      <UploadCloud
+                        aria-hidden="true"
+                        className="h-10 w-10 text-brand"
+                      />
+                      <span className="text-center font-medium">
+                        Arrastra el archivo aquí o haz clic para seleccionarlo
+                      </span>
+                      <span className="text-sm text-foreground/60">
+                        Solo se aceptan libros .xlsx
+                      </span>
                     </button>
-                  </div>
-                )}
-              </div>
+                  )}
+
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="sr-only"
+                    onChange={(event) => {
+                      accept(event.target.files?.[0]);
+                    }}
+                  />
+
+                  {error && (
+                    <p
+                      id="excel-upload-error"
+                      role="alert"
+                      className="mt-4 text-sm leading-6 text-red-800"
+                    >
+                      {error}
+                    </p>
+                  )}
+
+                  {file && carga.estado !== "inactiva" && (
+                    <ProgresoCarga carga={carga} />
+                  )}
+
+                  {file && (
+                    <div className="mt-6 flex flex-wrap justify-end gap-3">
+                      {carga.estado === "lista" && (
+                        <button
+                          type="button"
+                          onClick={() => window.location.reload()}
+                          className="flex h-11 items-center gap-2 rounded-full px-6 font-medium text-foreground/80 transition-colors hover:bg-foreground/10"
+                        >
+                          <RefreshCw aria-hidden="true" className="h-4 w-4" />
+                          Ver datos actualizados
+                        </button>
+                      )}
+                      {enCurso && (
+                        <button
+                          type="button"
+                          onClick={() => cancelarRef.current?.()}
+                          className="h-11 rounded-full border border-red-800/30 px-8 font-medium text-red-800 transition-colors hover:bg-red-800/10"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={cargar}
+                        disabled={enCurso}
+                        aria-busy={enCurso}
+                        className="flex h-11 items-center gap-2 rounded-full bg-[#1f1f1f] px-8 font-medium text-background transition-opacity hover:opacity-85 active:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {enCurso && (
+                          <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+                        )}
+                        {enCurso ? "Cargando…" : carga.estado === "lista" ? "Cargar de nuevo" : "Cargar"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -490,6 +510,163 @@ function ProgresoCarga({ carga }: { carga: Exclude<Carga, { estado: "inactiva" }
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+type Conteo = { ventas: number; clientes: number; materiales: number; asesores: number };
+
+const describirConteo = ({ ventas, clientes, materiales, asesores }: Conteo) =>
+  `${ventas.toLocaleString("es-CO")} ventas, ${clientes.toLocaleString("es-CO")} clientes, ` +
+  `${materiales.toLocaleString("es-CO")} materiales y ${asesores.toLocaleString("es-CO")} asesores`;
+
+type EstadoBorrado =
+  | { fase: "contando" }
+  | { fase: "confirmar"; conteo: Conteo }
+  | { fase: "borrando"; conteo: Conteo }
+  | { fase: "hecho"; borrado: Conteo }
+  | { fase: "fallido"; mensaje: string };
+
+const mensajeDe = async (respuesta: Response) => {
+  const cuerpo = await respuesta.json().catch(() => null);
+  return (cuerpo?.error as ErrorApi | undefined)?.mensaje ?? `Error inesperado (${respuesta.status}).`;
+};
+
+/**
+ * Confirmacion para vaciar ventas y maestras (DELETE /api/cargas). Muestra
+ * cuantas filas se pierden antes de pedir el si definitivo.
+ */
+function BorrarDatos({ onVolver }: { onVolver: () => void }) {
+  const [estado, setEstado] = useState<EstadoBorrado>({ fase: "contando" });
+
+  useEffect(() => {
+    const controlador = new AbortController();
+    fetch("/api/cargas", { signal: controlador.signal })
+      .then(async (respuesta) => {
+        if (!respuesta.ok) throw new Error(await mensajeDe(respuesta));
+        const { actual } = (await respuesta.json()) as { actual: Conteo };
+        setEstado({ fase: "confirmar", conteo: actual });
+      })
+      .catch((fallo: unknown) => {
+        if (fallo instanceof DOMException && fallo.name === "AbortError") return;
+        setEstado({
+          fase: "fallido",
+          mensaje: fallo instanceof Error ? fallo.message : "No se pudo consultar la base.",
+        });
+      });
+    return () => controlador.abort();
+  }, []);
+
+  async function borrar(conteo: Conteo) {
+    setEstado({ fase: "borrando", conteo });
+    try {
+      const respuesta = await fetch("/api/cargas", { method: "DELETE" });
+      if (!respuesta.ok) throw new Error(await mensajeDe(respuesta));
+      const { borrado } = (await respuesta.json()) as { borrado: Conteo };
+      setEstado({ fase: "hecho", borrado });
+      toast.success("Datos borrados");
+    } catch (fallo) {
+      const mensaje = fallo instanceof Error ? fallo.message : "No se pudieron borrar los datos.";
+      setEstado({ fase: "fallido", mensaje });
+      toast.error(mensaje);
+    }
+  }
+
+  const volver = (
+    <button
+      type="button"
+      onClick={onVolver}
+      className="h-11 rounded-full px-6 font-medium text-foreground/80 transition-colors hover:bg-foreground/10"
+    >
+      Volver
+    </button>
+  );
+
+  if (estado.fase === "hecho") {
+    return (
+      <div className="mt-8">
+        <div role="status" className="rounded-2xl bg-foreground/5 p-5 text-sm leading-6">
+          <p className="flex items-center gap-2 font-medium">
+            <Check aria-hidden="true" className="h-4 w-4 text-brand" />
+            Datos borrados
+          </p>
+          <p className="mt-1 text-foreground/70">
+            Se eliminaron {describirConteo(estado.borrado)}. Carga un Excel para volver a llenar la base.
+          </p>
+        </div>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="flex h-11 items-center gap-2 rounded-full px-6 font-medium text-foreground/80 transition-colors hover:bg-foreground/10"
+          >
+            <RefreshCw aria-hidden="true" className="h-4 w-4" />
+            Ver datos actualizados
+          </button>
+          <button
+            type="button"
+            onClick={onVolver}
+            className="h-11 rounded-full bg-[#1f1f1f] px-8 font-medium text-background transition-opacity hover:opacity-85 active:opacity-70"
+          >
+            Cargar Excel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (estado.fase === "fallido") {
+    return (
+      <div className="mt-8">
+        <p role="alert" className="text-sm leading-6 text-red-800">
+          {estado.mensaje}
+        </p>
+        <div className="mt-6 flex justify-end">{volver}</div>
+      </div>
+    );
+  }
+
+  const conteo = estado.fase === "contando" ? null : estado.conteo;
+  const borrando = estado.fase === "borrando";
+  const vacia = conteo !== null && conteo.ventas + conteo.clientes + conteo.materiales + conteo.asesores === 0;
+
+  return (
+    <div className="mt-8">
+      <div
+        role="alertdialog"
+        aria-labelledby="borrar-titulo"
+        aria-describedby="borrar-detalle"
+        className="rounded-2xl border border-red-800/20 bg-red-800/5 p-5"
+      >
+        <p id="borrar-titulo" className="flex items-center gap-2 font-medium text-red-800">
+          <TriangleAlert aria-hidden="true" className="h-5 w-5 shrink-0" />
+          ¿Borrar los datos actuales?
+        </p>
+        <p id="borrar-detalle" className="mt-2 text-sm leading-6 text-foreground/80">
+          {conteo === null
+            ? "Consultando cuántos datos hay en la base…"
+            : vacia
+              ? "La base ya está vacía: no hay datos que borrar."
+              : `Se eliminarán ${describirConteo(conteo)}. Esta acción no se puede deshacer; para recuperarlos tendrás que volver a cargar el Excel.`}
+        </p>
+      </div>
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        {!borrando && volver}
+        <button
+          type="button"
+          onClick={() => conteo && borrar(conteo)}
+          disabled={conteo === null || vacia || borrando}
+          aria-busy={borrando}
+          className="flex h-11 items-center gap-2 rounded-full bg-red-800 px-8 font-medium text-white transition-opacity hover:opacity-90 active:opacity-75 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {borrando ? (
+            <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 aria-hidden="true" className="h-4 w-4" />
+          )}
+          {borrando ? "Borrando…" : "Sí, borrar todo"}
+        </button>
+      </div>
     </div>
   );
 }
