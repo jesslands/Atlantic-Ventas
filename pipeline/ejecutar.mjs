@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 
-import { hoja, valor } from "./extract.mjs";
+import { hoja, validarLibro, valor } from "./extract.mjs";
 import { entero, neto, normalizarPeriodo, texto } from "./transform.mjs";
 import {
   cargarMaestras,
@@ -31,6 +31,35 @@ export class CargaCancelada extends Error {
     this.name = "CargaCancelada";
   }
 }
+
+/**
+ * Recorre `iterable` pero deja de esperar apenas `signal` se aborta, aunque el
+ * productor (ExcelJS) este bloqueado sin emitir: asi cancelar siempre responde.
+ * @template T
+ * @param {AsyncIterable<T>} iterable
+ * @param {AbortSignal | undefined} signal
+ * @returns {AsyncGenerator<T>}
+ */
+const cancelable = async function* (iterable, signal) {
+  const iterador = iterable[Symbol.asyncIterator]();
+  /** @type {Promise<never>} */
+  const abortado = new Promise((_resolver, rechazar) => {
+    if (!signal) return;
+    if (signal.aborted) rechazar(new CargaCancelada());
+    signal.addEventListener("abort", () => rechazar(new CargaCancelada()), { once: true });
+  });
+  abortado.catch(() => {});
+  try {
+    while (true) {
+      const paso = await Promise.race([iterador.next(), abortado]);
+      if (paso.done) return;
+      yield paso.value;
+    }
+  } finally {
+    // Sin await: si el productor esta colgado, esperar su cierre tambien colgaria.
+    iterador.return?.().catch(() => {});
+  }
+};
 
 const crearReporte = (archivo) => ({
   archivo,
@@ -90,6 +119,7 @@ export const ejecutarPipeline = async ({
   };
 
   avisar("preparando", 0, "Preparando la base");
+  await validarLibro(archivo);
   const { size: tamano } = await stat(archivo);
   const base = databaseUrl ? crearCliente(databaseUrl) : null;
   let enTransaccion = false;
@@ -110,12 +140,12 @@ export const ejecutarPipeline = async ({
 
     let totalVentas = null;
     avisar("maestras", 0, "Leyendo clientes, materiales y asesores");
-    for await (const fila of hoja(archivo, null, {
+    for await (const fila of cancelable(hoja(archivo, null, {
       alLeer: (bytes) => avisar("maestras", bytes / tamano, "Leyendo clientes, materiales y asesores"),
       alContarVentas: (filas) => {
         totalVentas = filas;
       },
-    })) {
+    }), signal)) {
       revisar();
       switch (fila.hoja) {
         case "Clientes": {
@@ -227,9 +257,9 @@ export const ejecutarPipeline = async ({
     };
 
     avisar("ventas", 0, "Leyendo la hoja de ventas");
-    for await (const fila of hoja(archivo, HOJA_VENTAS, {
+    for await (const fila of cancelable(hoja(archivo, HOJA_VENTAS, {
       alLeer: (bytes) => avisar("ventas", (bytes / tamano) * LECTURA_VENTAS, "Leyendo la hoja de ventas"),
-    })) {
+    }), signal)) {
       revisar();
       leidas += 1;
       const original = texto(valor(fila, "PERIODO"));

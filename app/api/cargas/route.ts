@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { ApiError, manejar, peticionInvalida } from "@/app/lib/api/http";
 import { CargaCancelada, ejecutarPipeline } from "@/pipeline/ejecutar.mjs";
+import { LibroInvalido } from "@/pipeline/extract.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ const ZIP = [0x50, 0x4b, 0x03, 0x04];
 // mismas filas se bloquearian entre si y la segunda pisaria a la primera.
 const estado = globalThis as unknown as { cargaEnCurso?: boolean };
 
-const guardarCuerpo = async (request: Request, destino: string) => {
+const guardarCuerpo = async (request: Request, destino: string, declarado: number) => {
   if (!request.body) throw peticionInvalida("No se recibió ningún archivo.");
   const archivo = await open(destino, "w");
   let total = 0;
@@ -33,6 +34,13 @@ const guardarCuerpo = async (request: Request, destino: string) => {
     await archivo.close();
   }
   if (total === 0) throw peticionInvalida("El archivo está vacío.");
+  // Si algo en el camino corta el cuerpo (p. ej. el limite del proxy), llegan
+  // menos bytes de los anunciados: mejor fallar aqui que procesar medio libro.
+  if (declarado && total !== declarado) {
+    throw peticionInvalida(
+      `El archivo llegó incompleto (${total} de ${declarado} bytes). Inténtalo de nuevo.`,
+    );
+  }
 
   const cabecera = Buffer.alloc(4);
   const lectura = await open(destino, "r");
@@ -65,7 +73,7 @@ export const POST = manejar(async (request: Request) => {
   };
 
   try {
-    await guardarCuerpo(request, temporal);
+    await guardarCuerpo(request, temporal, declarado);
   } catch (error) {
     await liberar();
     throw error;
@@ -108,6 +116,8 @@ export const POST = manejar(async (request: Request) => {
       } catch (error) {
         if (error instanceof CargaCancelada) {
           enviar({ tipo: "cancelado", mensaje: error.message });
+        } else if (error instanceof LibroInvalido) {
+          enviar({ tipo: "error", mensaje: error.message });
         } else {
           console.error("[api] carga de Excel fallida", error);
           enviar({

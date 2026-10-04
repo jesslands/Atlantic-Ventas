@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { open } from "node:fs/promises";
 import { Transform } from "node:stream";
 import ExcelJS from "exceljs";
 
@@ -66,6 +67,39 @@ export const hoja = async function* (archivo, solo, { alLeer, alContarVentas } =
     // Si el recorrido se corta (cancelacion o error) el archivo no queda abierto.
     entrada.destroy();
     contador.destroy();
+  }
+};
+
+export class LibroInvalido extends Error {
+  constructor(mensaje) {
+    super(mensaje);
+    this.name = "LibroInvalido";
+  }
+}
+
+// Un .xlsx es un zip, que termina con el registro "fin de directorio central"
+// (PK\x05\x06) en sus ultimos 64 KB. Si falta, el archivo llego cortado o esta
+// danado; hay que detectarlo antes de leer porque ExcelJS, ante un zip
+// truncado, se queda esperando para siempre en vez de fallar.
+export const validarLibro = async (archivo) => {
+  const descriptor = await open(archivo, "r");
+  try {
+    const { size } = await descriptor.stat();
+    const inicio = Buffer.alloc(4);
+    await descriptor.read(inicio, 0, 4, 0);
+    if (size < 22 || inicio.readUInt32LE(0) !== 0x04034b50) {
+      throw new LibroInvalido("El archivo no es un libro de Excel (.xlsx).");
+    }
+    const largo = Math.min(size, 65_557);
+    const cola = Buffer.alloc(largo);
+    await descriptor.read(cola, 0, largo, size - largo);
+    if (cola.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) === -1) {
+      throw new LibroInvalido(
+        "El archivo está incompleto o dañado. Vuelve a guardarlo desde Excel e inténtalo de nuevo.",
+      );
+    }
+  } finally {
+    await descriptor.close();
   }
 };
 
