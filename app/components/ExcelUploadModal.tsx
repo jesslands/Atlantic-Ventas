@@ -1,7 +1,15 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { FileSpreadsheet, UploadCloud, X } from "lucide-react";
+import {
+  Check,
+  Circle,
+  FileSpreadsheet,
+  LoaderCircle,
+  RefreshCw,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useModalUpload, usePegado } from "../lib/ui";
@@ -32,6 +40,106 @@ export async function validateXlsx(file: File): Promise<string | null> {
   return null;
 }
 
+// Pasos que reporta POST /api/cargas (ver pipeline/ejecutar.mjs), mas la
+// subida del archivo, que solo la ve el navegador.
+const ETAPAS = [
+  { id: "subiendo", nombre: "Subiendo archivo" },
+  { id: "preparando", nombre: "Preparando la base" },
+  { id: "maestras", nombre: "Leyendo clientes, materiales y asesores" },
+  { id: "guardando_maestras", nombre: "Guardando maestras" },
+  { id: "ventas", nombre: "Cargando ventas" },
+  { id: "verificando", nombre: "Confirmando cambios" },
+] as const;
+
+type Etapa = (typeof ETAPAS)[number]["id"];
+
+// La subida ocupa este tramo de la barra; el resto lo reporta el servidor.
+const TRAMO_SUBIDA = 10;
+
+type Resumen = {
+  leidas: number;
+  cargado: Record<string, number>;
+};
+
+type Carga =
+  | { estado: "inactiva" }
+  | { estado: "en_curso"; etapa: Etapa; pct: number; detalle: string }
+  | { estado: "lista"; resumen: Resumen }
+  | { estado: "fallida"; mensaje: string };
+
+type EventoCarga =
+  | { tipo: "progreso"; etapa: Etapa; pct: number; detalle: string }
+  | ({ tipo: "listo" } & Resumen)
+  | { tipo: "cancelado" | "error"; mensaje: string };
+
+type EventoFinal = Exclude<EventoCarga, { tipo: "progreso" }>;
+
+class CargaCancelada extends Error {}
+
+/**
+ * XMLHttpRequest y no fetch: es la unica forma de medir el avance de la subida.
+ * El servidor responde NDJSON, que se va leyendo de responseText a medida que
+ * llega. `cancelar` corta la conexion; el servidor lo detecta, aborta el
+ * pipeline y hace ROLLBACK.
+ */
+function subirExcel(archivo: File, alAvanzar: (evento: Extract<EventoCarga, { tipo: "progreso" }>) => void) {
+  const xhr = new XMLHttpRequest();
+  const promesa = new Promise<Resumen>((resolver, rechazar) => {
+    let leido = 0;
+    let final: EventoFinal | null = null;
+
+    const procesar = () => {
+      const texto = xhr.responseText;
+      const corte = texto.lastIndexOf("\n");
+      if (corte < leido) return;
+      for (const linea of texto.slice(leido, corte).split("\n")) {
+        if (!linea.trim()) continue;
+        const evento = JSON.parse(linea) as EventoCarga;
+        if (evento.tipo === "progreso") alAvanzar(evento);
+        else final = evento;
+      }
+      leido = corte + 1;
+    };
+
+    xhr.open("POST", "/api/cargas");
+    xhr.setRequestHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    xhr.upload.onprogress = (evento) => {
+      if (!evento.lengthComputable) return;
+      alAvanzar({
+        tipo: "progreso",
+        etapa: "subiendo",
+        pct: (evento.loaded / evento.total) * 100,
+        detalle: `${formatSize(evento.loaded)} de ${formatSize(evento.total)}`,
+      });
+    };
+    xhr.onprogress = () => {
+      if (xhr.status === 200) procesar();
+    };
+    xhr.onload = () => {
+      if (xhr.status !== 200) {
+        let mensaje = `Error inesperado (${xhr.status}).`;
+        try {
+          mensaje = JSON.parse(xhr.responseText).error?.mensaje ?? mensaje;
+        } catch {}
+        rechazar(new Error(mensaje));
+        return;
+      }
+      procesar();
+      const ultimo = final as EventoFinal | null;
+      if (ultimo?.tipo === "listo") resolver(ultimo);
+      else if (ultimo?.tipo === "cancelado") rechazar(new CargaCancelada());
+      else rechazar(new Error(ultimo?.mensaje ?? "La carga se interrumpió antes de terminar."));
+    };
+    xhr.onerror = () => rechazar(new Error("Se perdió la conexión con el servidor."));
+    xhr.onabort = () => rechazar(new CargaCancelada());
+    xhr.send(archivo);
+  });
+  return { promesa, cancelar: () => xhr.abort() };
+}
+
 const formatSize = (bytes: number) =>
   bytes < 1024 * 1024
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -44,6 +152,9 @@ export default function ExcelUploadModal() {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [carga, setCarga] = useState<Carga>({ estado: "inactiva" });
+  const cancelarRef = useRef<(() => void) | null>(null);
+  const enCurso = carga.estado === "en_curso";
 
   useEffect(() => {
     if (!isOpen) return;
@@ -74,13 +185,44 @@ export default function ExcelUploadModal() {
 
     setError(null);
     setFile(candidate);
+    setCarga({ estado: "inactiva" });
     toast.success(`Archivo validado: ${candidate.name}`);
   }
 
   function reset() {
     setFile(null);
     setError(null);
+    setCarga({ estado: "inactiva" });
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  async function cargar() {
+    if (!file || enCurso) return;
+    setCarga({ estado: "en_curso", etapa: "subiendo", pct: 0, detalle: "Iniciando" });
+    const { promesa, cancelar } = subirExcel(file, ({ etapa, pct, detalle }) => {
+      const total =
+        etapa === "subiendo"
+          ? (pct * TRAMO_SUBIDA) / 100
+          : TRAMO_SUBIDA + (pct * (100 - TRAMO_SUBIDA)) / 100;
+      setCarga({ estado: "en_curso", etapa, pct: total, detalle });
+    });
+    cancelarRef.current = cancelar;
+    try {
+      const resumen = await promesa;
+      setCarga({ estado: "lista", resumen });
+      toast.success(`${resumen.leidas.toLocaleString("es-CO")} ventas cargadas`);
+    } catch (fallo) {
+      if (fallo instanceof CargaCancelada) {
+        setCarga({ estado: "inactiva" });
+        toast("Carga cancelada. La base quedó sin cambios.");
+      } else {
+        const mensaje = fallo instanceof Error ? fallo.message : "No se pudo cargar el archivo.";
+        setCarga({ estado: "fallida", mensaje });
+        toast.error(mensaje);
+      }
+    } finally {
+      cancelarRef.current = null;
+    }
   }
 
   return (
@@ -160,7 +302,8 @@ export default function ExcelUploadModal() {
                     <button
                       type="button"
                       onClick={reset}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground"
+                      disabled={enCurso}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
                       aria-label={`Quitar ${file.name}`}
                     >
                       <X aria-hidden="true" className="h-5 w-5" />
@@ -220,16 +363,42 @@ export default function ExcelUploadModal() {
                   </p>
                 )}
 
+                {file && carga.estado !== "inactiva" && (
+                  <ProgresoCarga carga={carga} />
+                )}
+
                 {file && (
-                  <div className="mt-6 flex justify-end">
+                  <div className="mt-6 flex flex-wrap justify-end gap-3">
+                    {carga.estado === "lista" && (
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="flex h-11 items-center gap-2 rounded-full px-6 font-medium text-foreground/80 transition-colors hover:bg-foreground/10"
+                      >
+                        <RefreshCw aria-hidden="true" className="h-4 w-4" />
+                        Ver datos actualizados
+                      </button>
+                    )}
+                    {enCurso && (
+                      <button
+                        type="button"
+                        onClick={() => cancelarRef.current?.()}
+                        className="h-11 rounded-full border border-red-800/30 px-8 font-medium text-red-800 transition-colors hover:bg-red-800/10"
+                      >
+                        Cancelar
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() =>
-                        toast.success(`${file.name} listo para cargar`)
-                      }
-                      className="h-11 rounded-full bg-[#1f1f1f] px-8 font-medium text-background transition-opacity hover:opacity-85 active:opacity-70"
+                      onClick={cargar}
+                      disabled={enCurso}
+                      aria-busy={enCurso}
+                      className="flex h-11 items-center gap-2 rounded-full bg-[#1f1f1f] px-8 font-medium text-background transition-opacity hover:opacity-85 active:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Cargar
+                      {enCurso && (
+                        <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" />
+                      )}
+                      {enCurso ? "Cargando…" : carga.estado === "lista" ? "Cargar de nuevo" : "Cargar"}
                     </button>
                   </div>
                 )}
@@ -239,5 +408,88 @@ export default function ExcelUploadModal() {
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+function ProgresoCarga({ carga }: { carga: Exclude<Carga, { estado: "inactiva" }> }) {
+  if (carga.estado === "fallida") {
+    return (
+      <p role="alert" className="mt-6 text-sm leading-6 text-red-800">
+        {carga.mensaje}
+      </p>
+    );
+  }
+
+  if (carga.estado === "lista") {
+    const { cargado, leidas } = carga.resumen;
+    return (
+      <div role="status" className="mt-6 rounded-2xl bg-foreground/5 p-5 text-sm leading-6">
+        <p className="flex items-center gap-2 font-medium">
+          <Check aria-hidden="true" className="h-4 w-4 text-brand" />
+          Carga completa
+        </p>
+        <p className="mt-1 text-foreground/70">
+          {leidas.toLocaleString("es-CO")} filas de ventas procesadas. En la base:{" "}
+          {(cargado.ventas ?? 0).toLocaleString("es-CO")} ventas,{" "}
+          {(cargado.clientes ?? 0).toLocaleString("es-CO")} clientes,{" "}
+          {(cargado.materiales ?? 0).toLocaleString("es-CO")} materiales y{" "}
+          {(cargado.asesores ?? 0).toLocaleString("es-CO")} asesores.
+        </p>
+      </div>
+    );
+  }
+
+  const actual = ETAPAS.findIndex((etapa) => etapa.id === carga.etapa);
+  const pct = Math.round(carga.pct);
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-baseline justify-between gap-4 text-sm">
+        <span className="font-medium">{ETAPAS[actual]?.nombre}</span>
+        <span className="tabular-nums text-foreground/60">{pct}%</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="Avance de la carga"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-valuetext={`${pct}% · ${ETAPAS[actual]?.nombre}`}
+        className="mt-2 h-2 overflow-hidden rounded-full bg-foreground/10"
+      >
+        <div
+          className="h-full rounded-full bg-brand transition-[width] duration-300 ease-out"
+          style={{ width: `${carga.pct}%` }}
+        />
+      </div>
+      <p className="mt-2 text-sm tabular-nums text-foreground/60" aria-live="polite">
+        {carga.detalle}
+      </p>
+
+      <ol className="mt-4 space-y-1.5 text-sm">
+        {ETAPAS.map((etapa, i) => {
+          const hecha = i < actual;
+          const activa = i === actual;
+          return (
+            <li
+              key={etapa.id}
+              className={`flex items-center gap-2 ${
+                activa ? "font-medium" : hecha ? "text-foreground/70" : "text-foreground/40"
+              }`}
+            >
+              {hecha ? (
+                <Check aria-hidden="true" className="h-4 w-4 text-brand" />
+              ) : activa ? (
+                <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin text-brand" />
+              ) : (
+                <Circle aria-hidden="true" className="h-4 w-4" />
+              )}
+              {etapa.nombre}
+              <span className="sr-only">{hecha ? "(hecho)" : activa ? "(en curso)" : "(pendiente)"}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
