@@ -36,10 +36,11 @@ async function sembrar() {
     [CLIENTE_A, CLIENTE_B],
   );
   await sql(
-    `INSERT INTO materiales (cod_material, nombre, categoria, subcategoria)
-     VALUES ($1, 'Material Uno', 'PRUEBACAT', 'SUBUNO'), ($2, 'Material Dos', 'PRUEBADOS', NULL)
+    `INSERT INTO materiales (cod_material, nombre, categoria, subcategoria, marca, calidad)
+     VALUES ($1, 'Material Uno', 'PRUEBACAT', 'SUBUNO', 'MARCA X', 'PREMIUM'),
+            ($2, 'Material Dos', 'PRUEBADOS', NULL, NULL, NULL)
      ON CONFLICT (cod_material) DO UPDATE SET nombre = EXCLUDED.nombre, categoria = EXCLUDED.categoria,
-       subcategoria = EXCLUDED.subcategoria`,
+       subcategoria = EXCLUDED.subcategoria, marca = EXCLUDED.marca, calidad = EXCLUDED.calidad`,
     [MATERIAL_1, MATERIAL_2],
   );
   await sql(
@@ -438,6 +439,22 @@ test("GET /categorias reparte el neto por categoría y /categorias/[nombre] trae
   assert.equal(malformada.status, 400);
 });
 
+test("GET /subcategorias/[nombre] trae su ficha con marcas, calidades y materiales", async () => {
+  const { respuesta, cuerpo } = await pedir(`/api/subcategorias/subuno?${RANGO}`);
+  assert.equal(respuesta.status, 200, "el nombre no distingue mayúsculas");
+  assert.equal(cuerpo.subcategoria, "SUBUNO");
+  assert.equal(cuerpo.categoria, "PRUEBACAT");
+  assert.equal(cuerpo.neto, 2500);
+  assert.deepEqual(cuerpo.anios, [{ anio: "2090", neto: 2500, ventas: 2 }]);
+  assert.deepEqual(cuerpo.marcas, [{ nombre: "MARCA X", neto: 2500, ventas: 2 }]);
+  assert.deepEqual(cuerpo.calidades, [{ nombre: "PREMIUM", neto: 2500, ventas: 2 }]);
+  assert.equal(cuerpo.top_materiales[0].codigo, MATERIAL_1);
+  assert.equal(cuerpo.top_clientes[0].codigo, CLIENTE_A);
+
+  assert.equal((await pedir(`/api/subcategorias/NO%20EXISTE`)).respuesta.status, 404);
+  assert.equal((await pedir(`/api/subcategorias/%25`)).respuesta.status, 400);
+});
+
 test("GET /materiales lista y busca; /materiales/[codigo] trae año, mes a mes y clientes", async () => {
   const { cuerpo } = await pedir(`/api/materiales?${RANGO}&q=uno`);
   assert.equal(cuerpo.paginacion.total, 1);
@@ -508,7 +525,7 @@ test("el rate limit responde 429 + Retry-After al superar el límite", async () 
   assert.equal(cuerpo.error.codigo, "DEMASIADAS_SOLICITUDES");
 });
 
-test("GET /api/docs/openapi.json documenta los doce endpoints", async () => {
+test("GET /api/docs/openapi.json documenta los trece endpoints", async () => {
   const { respuesta, cuerpo } = await pedir("/api/docs/openapi.json");
   assert.equal(respuesta.status, 200);
   assert.deepEqual(Object.keys(cuerpo.paths).sort(), [
@@ -522,6 +539,7 @@ test("GET /api/docs/openapi.json documenta los doce endpoints", async () => {
     "/kpis",
     "/materiales",
     "/materiales/{codigo}",
+    "/subcategorias/{nombre}",
     "/ventas/sedes",
     "/ventas/tendencia",
   ]);
@@ -612,6 +630,7 @@ test("el JSON de cada endpoint cumple el contrato OpenAPI", async () => {
     { ruta: `/api/categorias/pruebacat?${RANGO}`, path: "/categorias/{nombre}" },
     { ruta: `/api/materiales?${RANGO}`, path: "/materiales" },
     { ruta: `/api/materiales/${MATERIAL_1}?${RANGO}`, path: "/materiales/{codigo}" },
+    { ruta: `/api/subcategorias/subuno?${RANGO}`, path: "/subcategorias/{nombre}" },
   ];
 
   for (const { ruta, path } of casos) {

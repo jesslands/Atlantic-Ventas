@@ -177,6 +177,15 @@ export type FichaCategoria = FichaVentas & {
   top_materiales: { codigo: number; nombre: string; subcategoria: string | null; neto: number; ventas: number }[];
 };
 
+export type FichaSubcategoria = FichaVentas & {
+  subcategoria: string;
+  categoria: string;
+  materiales: number;
+  marcas: { nombre: string; neto: number; ventas: number }[];
+  calidades: { nombre: string; neto: number; ventas: number }[];
+  top_materiales: { codigo: number; nombre: string; subcategoria: string | null; neto: number; ventas: number }[];
+};
+
 /** Una línea del historial: la compra de un material en un mes. */
 export type Compra = {
   periodo: string;

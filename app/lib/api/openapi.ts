@@ -408,6 +408,37 @@ export const openapi = {
         },
       },
     },
+    "/subcategorias/{nombre}": {
+      get: {
+        tags: ["Materiales"],
+        summary: "Ficha de una subcategoria: total del anio, mes a mes, clientes, marcas, calidades y materiales",
+        parameters: [
+          { name: "nombre", in: "path", required: true, schema: { type: "string", example: "CORTES DE CERDO" }, description: "Nombre de la subcategoria (no distingue mayusculas)." },
+          ...PARAMETROS_FILTRO,
+        ],
+        responses: {
+          200: respuesta(
+            "Ficha de la subcategoria",
+            objeto({
+              subcategoria: { type: "string" },
+              categoria: { type: "string" },
+              materiales: ENTERO,
+              neto: NUMERO,
+              ventas: ENTERO,
+              clientes: ENTERO,
+              ticket_medio: NUMERO,
+              anios: { type: "array", items: { type: "object" } },
+              periodos: { type: "array", items: { type: "object" } },
+              top_clientes: { type: "array", items: { type: "object" } },
+              marcas: { type: "array", items: objeto({ nombre: { type: "string" }, neto: NUMERO, ventas: ENTERO }) },
+              calidades: { type: "array", items: objeto({ nombre: { type: "string" }, neto: NUMERO, ventas: ENTERO }) },
+              top_materiales: { type: "array", items: { type: "object" } },
+            }),
+          ),
+          ...ERRORES,
+        },
+      },
+    },
     "/materiales": {
       get: {
         tags: ["Materiales"],

@@ -189,11 +189,46 @@ export const fichaMaterial = async (codigo: number, filtros: Filtros): Promise<F
   return { material, ...ficha };
 };
 
+/** Columnas de `materiales` por las que se desglosa una ficha (lista cerrada: van al SQL). */
+const DESGLOSES = { subcategoria: "m.subcategoria", marca: "m.marca", calidad: "m.calidad" } as const;
+
+type Desglose = { nombre: string; neto: number; ventas: number };
+
+const desglose = async (
+  filtros: Filtros,
+  condicion: (params: unknown[]) => string,
+  columna: keyof typeof DESGLOSES,
+): Promise<Desglose[]> => {
+  const { sql, params } = donde(filtros, (p) => [condicion(p)]);
+  const { rows } = await consultar<Desglose>(
+    `SELECT coalesce(${DESGLOSES[columna]}, 'Sin dato') AS nombre,
+            sum(v.neto)::float8 AS neto, count(*)::int AS ventas
+     ${DESDE} ${sql} GROUP BY 1 ORDER BY neto DESC`,
+    params,
+  );
+  return rows;
+};
+
+type TopMaterial = { codigo: number; nombre: string; subcategoria: string | null; neto: number; ventas: number };
+
+const topMateriales = async (filtros: Filtros, condicion: (params: unknown[]) => string) => {
+  const { sql, params } = donde(filtros, (p) => [condicion(p)]);
+  const { rows } = await consultar<TopMaterial>(
+    `SELECT m.cod_material AS codigo, m.nombre, m.subcategoria,
+            sum(v.neto)::float8 AS neto, count(*)::int AS ventas
+     ${DESDE} ${sql}
+     GROUP BY m.cod_material, m.nombre, m.subcategoria
+     ORDER BY neto DESC, m.cod_material ASC LIMIT 10`,
+    params,
+  );
+  return rows;
+};
+
 export type FichaCategoria = Ficha & {
   categoria: string;
   materiales: number;
   subcategorias: { subcategoria: string; neto: number; ventas: number }[];
-  top_materiales: { codigo: number; nombre: string; subcategoria: string | null; neto: number; ventas: number }[];
+  top_materiales: TopMaterial[];
 };
 
 export const fichaCategoria = async (nombre: string, filtros: Filtros): Promise<FichaCategoria> => {
@@ -206,37 +241,47 @@ export const fichaCategoria = async (nombre: string, filtros: Filtros): Promise<
   if (!encontrada) throw noEncontrado(`No existe la categoría ${nombre}.`);
 
   const condicion = (p: unknown[]) => `m.categoria = $${p.push(encontrada.categoria)}`;
-  const recorte = () => donde(filtros, (p) => [condicion(p)]);
-
   const [ficha, subcategorias, materiales] = await Promise.all([
     fichaDe(filtros, condicion),
-    (() => {
-      const { sql, params } = recorte();
-      return consultar<FichaCategoria["subcategorias"][number]>(
-        `SELECT coalesce(m.subcategoria, 'Sin subcategoría') AS subcategoria,
-                sum(v.neto)::float8 AS neto, count(*)::int AS ventas
-         ${DESDE} ${sql} GROUP BY 1 ORDER BY neto DESC`,
-        params,
-      );
-    })(),
-    (() => {
-      const { sql, params } = recorte();
-      return consultar<FichaCategoria["top_materiales"][number]>(
-        `SELECT m.cod_material AS codigo, m.nombre, m.subcategoria,
-                sum(v.neto)::float8 AS neto, count(*)::int AS ventas
-         ${DESDE} ${sql}
-         GROUP BY m.cod_material, m.nombre, m.subcategoria
-         ORDER BY neto DESC, m.cod_material ASC LIMIT 10`,
-        params,
-      );
-    })(),
+    desglose(filtros, condicion, "subcategoria"),
+    topMateriales(filtros, condicion),
   ]);
 
   return {
     categoria: encontrada.categoria,
     materiales: encontrada.materiales,
     ...ficha,
-    subcategorias: subcategorias.rows,
-    top_materiales: materiales.rows,
+    subcategorias: subcategorias.map((d) => ({ subcategoria: d.nombre, neto: d.neto, ventas: d.ventas })),
+    top_materiales: materiales,
   };
+};
+
+export type FichaSubcategoria = Ficha & {
+  subcategoria: string;
+  categoria: string;
+  materiales: number;
+  marcas: Desglose[];
+  calidades: Desglose[];
+  top_materiales: TopMaterial[];
+};
+
+export const fichaSubcategoria = async (nombre: string, filtros: Filtros): Promise<FichaSubcategoria> => {
+  // Cada subcategoría pertenece a una sola categoría (verificado en el catálogo).
+  const { rows } = await consultar<{ subcategoria: string; categoria: string; materiales: number }>(
+    `SELECT subcategoria, min(categoria) AS categoria, count(*)::int AS materiales FROM materiales
+     WHERE upper(subcategoria) = $1 GROUP BY subcategoria`,
+    [nombre.toUpperCase()],
+  );
+  const encontrada = rows[0];
+  if (!encontrada) throw noEncontrado(`No existe la subcategoría ${nombre}.`);
+
+  const condicion = (p: unknown[]) => `m.subcategoria = $${p.push(encontrada.subcategoria)}`;
+  const [ficha, marcas, calidades, materiales] = await Promise.all([
+    fichaDe(filtros, condicion),
+    desglose(filtros, condicion, "marca"),
+    desglose(filtros, condicion, "calidad"),
+    topMateriales(filtros, condicion),
+  ]);
+
+  return { ...encontrada, ...ficha, marcas, calidades, top_materiales: materiales };
 };
