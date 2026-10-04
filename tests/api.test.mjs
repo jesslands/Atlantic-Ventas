@@ -367,6 +367,14 @@ test("GET /clientes/[codigo] devuelve la ficha con historial y responde 404 si n
   assert.equal(cuerpo.categorias.length, 1);
   assert.equal(cuerpo.categorias[0].neto, 2500);
 
+  // Regresión: con filtro de sede/asesor la consulta de materiales fallaba con 500
+  // ("missing FROM-clause entry for table a") por no unir asesores.
+  for (const filtro of ["sede=PRUEBA", "asesor=ASE-901", "sede=OTRA"]) {
+    const { respuesta: filtrada, cuerpo: ficha } = await pedir(`/api/clientes/${CLIENTE_A}?${RANGO}&${filtro}`);
+    assert.equal(filtrada.status, 200, filtro);
+    assert.equal(ficha.materiales.length, filtro === "sede=OTRA" ? 0 : 1, filtro);
+  }
+
   const { respuesta: ausente } = await pedir("/api/clientes/999999999");
   assert.equal(ausente.status, 404);
 });

@@ -280,7 +280,7 @@ Cobertura por endpoint (integración):
 - `/ventas/sedes` — las 7 sedes con venta suman 100% de participación, filtro por asesor.
 - `/asesores/ranking` — orden descendente por venta y variación calculada.
 - `/clientes` — paginación, búsqueda parcial, orden por nombre, `400` por orden desconocido.
-- `/clientes/{codigo}` — ficha con historial, materiales y categorías, `404`, `400` por código no numérico.
+- `/clientes/{codigo}` — ficha con historial, materiales y categorías, `404`, `400` por código no numérico, sin `500` con filtro de sede/asesor.
 - `/clientes/{codigo}/compras` — historial línea a línea, orden, búsqueda, nota crédito, `400` por orden inválido, `404`.
 - Seguridad — cabeceras de Helmet, `X-RateLimit-Limit`, `429 + Retry-After` al exceder.
 - Contrato — el JSON de cada endpoint cumple el OpenAPI documentado.

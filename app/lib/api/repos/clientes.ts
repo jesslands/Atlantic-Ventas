@@ -123,7 +123,10 @@ export const historialCliente = async (
     ),
     consultar<HistorialCliente["materiales"][number]>(
       `SELECT m.cod_material AS codigo, m.nombre, sum(v.neto)::float8 AS neto, count(*)::int AS ventas
-       FROM ventas v JOIN materiales m ON m.cod_material = v.cod_material
+       FROM ventas v
+       JOIN materiales m ON m.cod_material = v.cod_material
+       JOIN cliente_asesor ca ON ca.cod_cliente = v.cod_cliente
+       JOIN asesores a ON a.cod_asesor = ca.cod_asesor
        ${todos.where} AND v.cod_cliente = $${todos.params.length + 1}
        GROUP BY m.cod_material, m.nombre ORDER BY neto DESC LIMIT 8`,
       [...todos.params, codigo],
