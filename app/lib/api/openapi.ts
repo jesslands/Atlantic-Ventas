@@ -510,5 +510,50 @@ export const openapi = {
         },
       },
     },
+    "/cargas": {
+      post: {
+        tags: ["Carga"],
+        summary: "Cargar el libro de Excel con maestras y ventas",
+        description:
+          "Recibe el .xlsx como cuerpo crudo (máximo 50 MB) y corre el pipeline de limpieza y carga en una sola transacción. Responde NDJSON: una línea `progreso` por avance y una línea final `listo`, `cancelado` o `error`. Si el cliente corta la conexión, el pipeline se detiene y la base queda sin cambios. Solo se admite una carga a la vez.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+              schema: { type: "string", format: "binary" },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Stream de eventos, uno por línea",
+            content: {
+              "application/x-ndjson": {
+                schema: objeto(
+                  {
+                    tipo: { type: "string", enum: ["progreso", "listo", "cancelado", "error"] },
+                    etapa: {
+                      type: "string",
+                      enum: ["preparando", "maestras", "guardando_maestras", "ventas", "verificando"],
+                    },
+                    pct: NUMERO,
+                    detalle: { type: "string" },
+                    leidas: ENTERO,
+                    cargado: { type: "object" },
+                    mensaje: { type: "string" },
+                  },
+                  ["tipo"],
+                ),
+              },
+            },
+          },
+          400: respuesta("El archivo no es un .xlsx válido o está vacío", ERROR),
+          409: respuesta("Ya hay una carga en curso", ERROR),
+          413: respuesta("El archivo supera los 50 MB", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+    },
   },
 } as const;

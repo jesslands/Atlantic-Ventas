@@ -520,12 +520,13 @@ test("el rate limit responde 429 + Retry-After al superar el límite", async () 
   assert.equal(cuerpo.error.codigo, "DEMASIADAS_SOLICITUDES");
 });
 
-test("GET /api/docs/openapi.json documenta los trece endpoints", async () => {
+test("GET /api/docs/openapi.json documenta los catorce endpoints", async () => {
   const { respuesta, cuerpo } = await pedir("/api/docs/openapi.json");
   assert.equal(respuesta.status, 200);
   assert.deepEqual(Object.keys(cuerpo.paths).sort(), [
     "/asesores/ranking",
     "/asesores/{codigo}",
+    "/cargas",
     "/categorias",
     "/categorias/{nombre}",
     "/clientes",
