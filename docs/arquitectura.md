@@ -28,6 +28,15 @@ tests/unit.test.mjs               funciones puras y parsers
 tests/api.test.mjs                integración contra next start + Postgres
 ```
 
+
+### Justificación de la arquitectura
+
+Se implementó esta arquitectura siguiendo el principio de **“Preferimos algo pequeño y bien hecho a algo grande a medias”**.
+Para ello, se eligió **Next.js**, ya que permite desarrollar el frontend y, al mismo tiempo, construir el backend, gestionar rutas y crear APIs dentro del mismo proyecto.
+Esto evita la necesidad de mantener un backend independiente o incorporar otro lenguaje de programación, reduciendo la complejidad y evitando **sobreingeniería para el alcance actual del proyecto**.
+De esta forma, se mantiene una arquitectura **simple, coherente y fácil de mantener**, dejando la posibilidad de evolucionarla en el futuro si las necesidades del proyecto lo requieren.
+
+
 ## Principios aplicados
 
 - **Rutas finas**: cada `route.ts` parsea parámetros, llama a `consultas.ts` y envuelve la salida en JSON. La lógica no vive en la ruta.
