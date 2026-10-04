@@ -75,6 +75,10 @@ filtros opcionales:
 | `GET /clientes`         | Listado paginado con búsqueda (`?q=`), ordenamiento (`?orden=`, `?dir=`) y filtros (tope `pagina` 2.000) |
 | `GET /clientes/{codigo}`| Ficha del cliente: serie mensual, top 8 materiales, neto por categoría y primera/última compra |
 | `GET /clientes/{codigo}/compras` | Historial línea a línea (mes × material), paginado, con búsqueda por material y orden (`periodo`, `neto`, `material`) |
+| `GET /categorias`       | Neto, compras, clientes, materiales y participación por categoría                    |
+| `GET /categorias/{nombre}` | Ficha de la categoría: total del año, mes a mes, top 10 clientes, subcategorías y top 10 materiales |
+| `GET /materiales`       | Listado paginado de materiales con búsqueda (`?q=`), `?categoria=` y orden (`neto`, `ventas`, `clientes`, `nombre`, `codigo`) |
+| `GET /materiales/{codigo}` | Ficha del material: atributos, total del año, mes a mes y top 10 clientes          |
 
 Ejemplos:
 
@@ -282,11 +286,13 @@ Cobertura por endpoint (integración):
 - `/clientes` — paginación, búsqueda parcial, orden por nombre, `400` por orden desconocido.
 - `/clientes/{codigo}` — ficha con historial, materiales y categorías, `404`, `400` por código no numérico, sin `500` con filtro de sede/asesor.
 - `/clientes/{codigo}/compras` — historial línea a línea, orden, búsqueda, nota crédito, `400` por orden inválido, `404`.
+- `/categorias` y `/categorias/{nombre}` — reparto por categoría, ficha con año y mes a mes, `404`, `400` por nombre malformado.
+- `/materiales` y `/materiales/{codigo}` — búsqueda, filtro por categoría, ficha con clientes, filtros generales, `404`/`400`.
 - Seguridad — cabeceras de Helmet, `X-RateLimit-Limit`, `429 + Retry-After` al exceder.
 - Contrato — el JSON de cada endpoint cumple el OpenAPI documentado.
 - Schema — campos VARCHAR acotados, cod_asesor fuera de patrón rechazado.
 - Migraciones — el runner es idempotente.
-- Documentación — `/api/docs/openapi.json` expone los ocho endpoints.
+- Documentación — `/api/docs/openapi.json` expone los doce endpoints.
 - Idempotencia — doble `INSERT` del mismo grano no duplica filas.
 
 ---
@@ -304,12 +310,17 @@ app/
     clientes/route.ts             GET  /clientes
     clientes/[codigo]/route.ts    GET  /clientes/{codigo}
     clientes/[codigo]/compras/route.ts GET /clientes/{codigo}/compras
+    categorias/route.ts           GET  /categorias
+    categorias/[nombre]/route.ts  GET  /categorias/{nombre}
+    materiales/route.ts           GET  /materiales
+    materiales/[codigo]/route.ts  GET  /materiales/{codigo}
     docs/route.ts                 GET  /api/docs            (Swagger UI)
     docs/openapi.json/route.ts    GET  /api/docs/openapi.json
   lib/api/
     analitica.ts                  regresión lineal y variación (funciones puras)
     repos/ventas.ts               queries de /kpis, /ventas/*
     repos/clientes.ts             queries de /clientes, /clientes/{codigo}, /clientes/{codigo}/compras
+    repos/materiales.ts           queries de /categorias/* y /materiales/*
     repos/asesores.ts             queries de /asesores/ranking y /asesores/{codigo}
     db.ts                         pool de `pg`
     filtros.ts                    validación de la query string

@@ -13,6 +13,7 @@ app/
     ├── analitica.ts              funciones puras (regresión, variación)
     ├── repos/ventas.ts           SQL de /kpis, /ventas/*
     ├── repos/clientes.ts         SQL de /clientes, /clientes/{codigo}, /clientes/{codigo}/compras
+    ├── repos/materiales.ts       SQL de /categorias, /categorias/{nombre}, /materiales, /materiales/{codigo}
     ├── repos/asesores.ts         SQL de /asesores/ranking, /asesores/{codigo}
     ├── db.ts                     pool de pg + parsers de tipos
     ├── filtros.ts                validación de la query string

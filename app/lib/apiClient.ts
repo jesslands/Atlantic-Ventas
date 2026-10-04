@@ -123,6 +123,60 @@ export type FichaCliente = {
   categorias: { categoria: string; neto: number; ventas: number }[];
 };
 
+export type FilaCategoria = {
+  categoria: string;
+  neto: number;
+  ventas: number;
+  clientes: number;
+  materiales: number;
+  participacion: number;
+};
+
+export type MaterialListado = {
+  cod_material: number;
+  nombre: string;
+  categoria: string | null;
+  subcategoria: string | null;
+  marca: string | null;
+  neto: number;
+  ventas: number;
+  clientes: number;
+};
+
+/** Lo común a las fichas de material y de categoría. */
+export type FichaVentas = {
+  neto: number;
+  ventas: number;
+  clientes: number;
+  notas: number;
+  monto_notas: number;
+  ticket_medio: number;
+  anios: { anio: string; neto: number; ventas: number }[];
+  periodos: { periodo: string; neto: number; ventas: number; clientes: number }[];
+  top_clientes: { codigo: number; nombre: string; tipo: string; sede: string; neto: number; ventas: number }[];
+};
+
+export type FichaMaterial = FichaVentas & {
+  material: {
+    codigo: number;
+    nombre: string;
+    categoria: string | null;
+    subcategoria: string | null;
+    producto_base: string | null;
+    presentacion: string | null;
+    formato: string | null;
+    calidad: string | null;
+    marca: string | null;
+  };
+};
+
+export type FichaCategoria = FichaVentas & {
+  categoria: string;
+  materiales: number;
+  subcategorias: { subcategoria: string; neto: number; ventas: number }[];
+  top_materiales: { codigo: number; nombre: string; subcategoria: string | null; neto: number; ventas: number }[];
+};
+
 /** Una línea del historial: la compra de un material en un mes. */
 export type Compra = {
   periodo: string;

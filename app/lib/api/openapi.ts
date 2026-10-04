@@ -349,5 +349,135 @@ export const openapi = {
         },
       },
     },
+    "/categorias": {
+      get: {
+        tags: ["Materiales"],
+        summary: "Neto, compras, clientes y participacion por categoria",
+        parameters: [...PARAMETROS_FILTRO],
+        responses: {
+          200: respuesta(
+            "Categorias de mayor a menor neto",
+            objeto({
+              categorias: {
+                type: "array",
+                items: objeto({ categoria: { type: "string" }, neto: NUMERO, ventas: ENTERO, clientes: ENTERO, materiales: ENTERO, participacion: NUMERO }),
+              },
+            }),
+          ),
+          ...ERRORES,
+        },
+      },
+    },
+    "/categorias/{nombre}": {
+      get: {
+        tags: ["Materiales"],
+        summary: "Ficha de una categoria: total del anio, mes a mes, principales clientes y materiales",
+        parameters: [
+          { name: "nombre", in: "path", required: true, schema: { type: "string", example: "CERDO" }, description: "Nombre de la categoria (no distingue mayusculas)." },
+          ...PARAMETROS_FILTRO,
+        ],
+        responses: {
+          200: respuesta(
+            "Ficha de la categoria",
+            objeto({
+              categoria: { type: "string" },
+              materiales: ENTERO,
+              neto: NUMERO,
+              ventas: ENTERO,
+              clientes: ENTERO,
+              notas: ENTERO,
+              monto_notas: NUMERO,
+              ticket_medio: NUMERO,
+              anios: { type: "array", items: objeto({ anio: { type: "string" }, neto: NUMERO, ventas: ENTERO }) },
+              periodos: {
+                type: "array",
+                items: objeto({ periodo: { type: "string" }, neto: NUMERO, ventas: ENTERO, clientes: ENTERO }),
+              },
+              top_clientes: {
+                type: "array",
+                items: objeto({ codigo: ENTERO, nombre: { type: "string" }, tipo: { type: "string" }, sede: { type: "string" }, neto: NUMERO, ventas: ENTERO }),
+              },
+              subcategorias: { type: "array", items: objeto({ subcategoria: { type: "string" }, neto: NUMERO, ventas: ENTERO }) },
+              top_materiales: {
+                type: "array",
+                items: objeto({ codigo: ENTERO, nombre: { type: "string" }, subcategoria: { type: ["string", "null"] }, neto: NUMERO, ventas: ENTERO }),
+              },
+            }),
+          ),
+          ...ERRORES,
+        },
+      },
+    },
+    "/materiales": {
+      get: {
+        tags: ["Materiales"],
+        summary: "Listado paginado de materiales con busqueda, categoria y ordenamiento",
+        parameters: [
+          ...PARAMETROS_FILTRO,
+          { name: "pagina", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 1 } },
+          { name: "porPagina", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 20 } },
+          { name: "q", in: "query", schema: { type: "string", maxLength: 100 }, description: "Busqueda parcial por nombre." },
+          { name: "categoria", in: "query", schema: { type: "string", example: "POLLO" } },
+          { name: "orden", in: "query", schema: { type: "string", enum: ["neto", "ventas", "clientes", "nombre", "codigo"], default: "neto" } },
+          { name: "dir", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" } },
+        ],
+        responses: {
+          200: respuesta(
+            "Pagina de materiales",
+            objeto({
+              paginacion: objeto({ pagina: ENTERO, porPagina: ENTERO, total: ENTERO }),
+              materiales: {
+                type: "array",
+                items: objeto({
+                  cod_material: ENTERO,
+                  nombre: { type: "string" },
+                  categoria: { type: ["string", "null"] },
+                  subcategoria: { type: ["string", "null"] },
+                  marca: { type: ["string", "null"] },
+                  neto: NUMERO,
+                  ventas: ENTERO,
+                  clientes: ENTERO,
+                }),
+              },
+            }),
+          ),
+          ...ERRORES,
+        },
+      },
+    },
+    "/materiales/{codigo}": {
+      get: {
+        tags: ["Materiales"],
+        summary: "Ficha de un material: total del anio, mes a mes y principales clientes",
+        parameters: [
+          { name: "codigo", in: "path", required: true, schema: { type: "integer", example: 10256 }, description: "Codigo numerico del material." },
+          ...PARAMETROS_FILTRO,
+        ],
+        responses: {
+          200: respuesta(
+            "Ficha del material",
+            objeto({
+              material: { type: "object" },
+              neto: NUMERO,
+              ventas: ENTERO,
+              clientes: ENTERO,
+              notas: ENTERO,
+              monto_notas: NUMERO,
+              ticket_medio: NUMERO,
+              anios: { type: "array", items: objeto({ anio: { type: "string" }, neto: NUMERO, ventas: ENTERO }) },
+              periodos: {
+                type: "array",
+                items: objeto({ periodo: { type: "string" }, neto: NUMERO, ventas: ENTERO, clientes: ENTERO }),
+              },
+              top_clientes: {
+                type: "array",
+                items: objeto({ codigo: ENTERO, nombre: { type: "string" }, tipo: { type: "string" }, sede: { type: "string" }, neto: NUMERO, ventas: ENTERO }),
+              },
+            }),
+          ),
+          ...ERRORES,
+        },
+      },
+    },
   },
 } as const;
