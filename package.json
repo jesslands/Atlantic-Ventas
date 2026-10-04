@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "node --experimental-transform-types --test tests/*.test.mjs",
     "test:unit": "node --experimental-transform-types --test tests/unit.test.mjs",
     "test:integration": "node --test tests/api.test.mjs",

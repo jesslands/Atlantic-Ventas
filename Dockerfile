@@ -22,6 +22,10 @@ COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/.next ./.next
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/package.json ./package.json
+# `next start` lee la configuracion de este archivo al arrancar, no del build:
+# sin el, el contenedor corre con los valores por defecto (corta los cuerpos de
+# mas de 10 MB en /api/cargas y vuelve a mandar X-Powered-By).
+COPY --from=build --chown=node:node /app/next.config.ts ./next.config.ts
 COPY --from=build --chown=node:node /app/db ./db
 COPY --from=build --chown=node:node /app/pipeline ./pipeline
 COPY --from=build --chown=node:node /app/investigacion ./investigacion

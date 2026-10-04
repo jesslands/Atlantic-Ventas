@@ -510,5 +510,135 @@ export const openapi = {
         },
       },
     },
+    "/cargas": {
+      get: {
+        tags: ["Carga"],
+        summary: "Filas que hay hoy en cada tabla",
+        responses: {
+          200: respuesta(
+            "Conteo actual",
+            objeto({
+              actual: objeto(
+                { ventas: ENTERO, clientes: ENTERO, materiales: ENTERO, asesores: ENTERO, asignaciones: ENTERO },
+                ["ventas", "clientes", "materiales", "asesores", "asignaciones"],
+              ),
+            }, ["actual"]),
+          ),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+      delete: {
+        tags: ["Carga"],
+        summary: "Borrar ventas y maestras",
+        description:
+          "Vacía ventas, clientes, materiales, asesores y asignaciones en una transacción. Conserva el esquema: después basta con volver a cargar el Excel. No se puede deshacer.",
+        responses: {
+          200: respuesta(
+            "Filas eliminadas por tabla",
+            objeto({
+              borrado: objeto({ ventas: ENTERO, clientes: ENTERO, materiales: ENTERO, asesores: ENTERO, asignaciones: ENTERO }),
+            }, ["borrado"]),
+          ),
+          409: respuesta("Hay una carga en curso", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+      post: {
+        tags: ["Carga"],
+        summary: "Procesar un libro ya subido y cargarlo en Postgres",
+        description:
+          "Recibe `{ subida }`, el id de una subida completa (ver `/cargas/subidas`), y corre el pipeline de limpieza y carga en una sola transacción. Responde NDJSON: una línea `progreso` por avance y una línea final `listo`, `cancelado` o `error`. Si el cliente corta la conexión, el pipeline se detiene y la base queda sin cambios. Solo se admite una carga a la vez; al terminar, el archivo subido se borra.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: objeto({ subida: { type: "string", format: "uuid" } }, ["subida"]),
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Stream de eventos, uno por línea",
+            content: {
+              "application/x-ndjson": {
+                schema: objeto(
+                  {
+                    tipo: { type: "string", enum: ["progreso", "listo", "cancelado", "error"] },
+                    etapa: {
+                      type: "string",
+                      enum: ["preparando", "maestras", "guardando_maestras", "ventas", "verificando"],
+                    },
+                    pct: NUMERO,
+                    detalle: { type: "string" },
+                    leidas: ENTERO,
+                    cargado: { type: "object" },
+                    mensaje: { type: "string" },
+                  },
+                  ["tipo"],
+                ),
+              },
+            },
+          },
+          400: respuesta("Falta el id de la subida", ERROR),
+          404: respuesta("La subida no existe o venció", ERROR),
+          409: respuesta("Ya hay una carga en curso, o la subida no está completa", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+    },
+    "/cargas/subidas": {
+      post: {
+        tags: ["Carga"],
+        summary: "Abrir una subida por partes del libro de Excel",
+        description:
+          "El libro (hasta 1,5 GB) se sube en partes de `tamano_parte` bytes con `PUT /cargas/subidas/{id}`. Una subida sin actividad durante una hora se descarta.",
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: objeto({ tamano: ENTERO }, ["tamano"]) } },
+        },
+        responses: {
+          201: respuesta(
+            "Subida abierta",
+            objeto({ id: { type: "string", format: "uuid" }, tamano: ENTERO, tamano_parte: ENTERO }, ["id", "tamano", "tamano_parte"]),
+          ),
+          400: ERRORES[400],
+          413: respuesta("El archivo supera 1,5 GB", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+    },
+    "/cargas/subidas/{id}": {
+      put: {
+        tags: ["Carga"],
+        summary: "Anexar una parte a la subida",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "desde", in: "query", required: true, schema: ENTERO, description: "Bytes ya recibidos: la parte debe continuar exactamente ahí." },
+        ],
+        requestBody: {
+          required: true,
+          content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+        },
+        responses: {
+          200: respuesta("Parte recibida", objeto({ recibido: ENTERO, tamano: ENTERO }, ["recibido", "tamano"])),
+          400: respuesta("La parte llegó incompleta", ERROR),
+          404: respuesta("La subida no existe o venció", ERROR),
+          409: respuesta("`desde` no coincide con lo recibido; `detalles.recibido` dice desde dónde seguir", ERROR),
+          413: respuesta("La parte excede el tamaño permitido", ERROR),
+          429: ERRORES[429],
+          500: ERRORES[500],
+        },
+      },
+      delete: {
+        tags: ["Carga"],
+        summary: "Descartar una subida",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: { 204: { description: "Subida descartada" }, 404: ERRORES[404], 429: ERRORES[429] },
+      },
+    },
   },
 } as const;

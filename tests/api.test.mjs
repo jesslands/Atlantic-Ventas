@@ -134,12 +134,7 @@ test("el runner de migraciones es idempotente", async () => {
   await correr();
   await correr();
 
-  const { rows } = await sql(
-    `SELECT id FROM aplicada_aplicada`,
-  ).catch(async () => {
-    const r = await sql(`SELECT id FROM schema_migrations ORDER BY id`);
-    return r;
-  });
+  const { rows } = await sql(`SELECT id FROM schema_migrations ORDER BY id`);
   const ids = rows.map((fila) => fila.id);
   assert.ok(ids.length > 0, "debe haber al menos una migracion aplicada");
   assert.equal(new Set(ids).size, ids.length, "no hay migraciones duplicadas");
@@ -525,12 +520,15 @@ test("el rate limit responde 429 + Retry-After al superar el límite", async () 
   assert.equal(cuerpo.error.codigo, "DEMASIADAS_SOLICITUDES");
 });
 
-test("GET /api/docs/openapi.json documenta los trece endpoints", async () => {
+test("GET /api/docs/openapi.json documenta los dieciséis endpoints", async () => {
   const { respuesta, cuerpo } = await pedir("/api/docs/openapi.json");
   assert.equal(respuesta.status, 200);
   assert.deepEqual(Object.keys(cuerpo.paths).sort(), [
     "/asesores/ranking",
     "/asesores/{codigo}",
+    "/cargas",
+    "/cargas/subidas",
+    "/cargas/subidas/{id}",
     "/categorias",
     "/categorias/{nombre}",
     "/clientes",
