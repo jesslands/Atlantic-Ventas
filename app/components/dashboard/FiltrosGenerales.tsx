@@ -2,8 +2,8 @@
 
 import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
-import { PERIODOS, datosDemo } from "../../lib/mockSales";
-import { activos, useFiltros } from "../../lib/filtros";
+import { useApi, type FilaAsesor, type FilaSede } from "../../lib/apiClient";
+import { activos, PERIODOS, useFiltros } from "../../lib/filtros";
 import MultiSelect, { type Opcion } from "./MultiSelect";
 import { usePopover } from "./usePopover";
 
@@ -17,11 +17,13 @@ export default function FiltrosGenerales({
   oscuro?: boolean;
   compacto?: boolean;
 }) {
-  const [datos] = useState(datosDemo);
   const [filtros, setFiltros, limpiar] = useFiltros();
   const [abierto, setAbierto] = useState(false);
   const contenedor = usePopover<HTMLDivElement>(abierto, setAbierto);
   const cantidad = activos(filtros);
+
+  const { opcionesSede, opcionesAsesor } = useCatalogos(abierto);
+
   const cabecera = oscuro
     ? "text-background/85 hover:text-background"
     : "text-foreground/75 hover:text-foreground";
@@ -37,17 +39,11 @@ export default function FiltrosGenerales({
   const altoContador = compacto ? "h-4 min-w-4 px-1 text-[0.6rem]" : "h-5 min-w-5 px-1.5 text-[0.7rem]";
   const icono = compacto ? "h-3.5 w-3.5" : "h-4 w-4";
 
-  const opcionesPeriodo: Opcion[] = PERIODOS.map((p) => ({ valor: p, texto: p }));
-  const opcionesMaterial: Opcion[] = datos.materiales.map((m) => ({
-    valor: String(m.codigo),
-    texto: m.nombre,
-    detalle: m.categoria,
-  }));
-  const opcionesSede: Opcion[] = datos.sedes.map((s) => ({
-    valor: s.sede,
-    texto: s.sede,
-    detalle: s.asesor,
-  }));
+
+  const rangoPeriodo =
+    filtros.desde || filtros.hasta
+      ? `${filtros.desde ?? PERIODOS[0]} → ${filtros.hasta ?? PERIODOS.at(-1)}`
+      : null;
 
   return (
     <div className={`relative w-full ${compacto ? "flex items-center" : ""}`} ref={contenedor}>
@@ -81,23 +77,14 @@ export default function FiltrosGenerales({
 
         {cantidad > 0 && (
           <ul aria-label="Filtros activos" className="flex flex-wrap items-center gap-2">
-            {filtros.periodos.length > 0 && (
+            {rangoPeriodo && (
               <li>
-                <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ periodos: [] })}>
-                  {filtros.periodos.length === 1
-                    ? filtros.periodos[0]
-                    : resumen("periodos", filtros.periodos.length)}
-                </Badge>
-              </li>
-            )}
-            {filtros.materiales.length > 0 && (
-              <li>
-                <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ materiales: [] })}>
-                  {filtros.materiales.length === 1
-                    ? (opcionesMaterial.find(
-                        (o) => o.valor === String(filtros.materiales[0]),
-                      )?.texto ?? "1 material")
-                    : resumen("materiales", filtros.materiales.length)}
+                <Badge
+                  alto={altoChip}
+                  tono={chip}
+                  onClick={() => setFiltros({ desde: undefined, hasta: undefined })}
+                >
+                  {rangoPeriodo}
                 </Badge>
               </li>
             )}
@@ -107,6 +94,16 @@ export default function FiltrosGenerales({
                   {filtros.sedes.length === 1
                     ? filtros.sedes[0]
                     : resumen("sedes", filtros.sedes.length)}
+                </Badge>
+              </li>
+            )}
+            {filtros.asesores.length > 0 && (
+              <li>
+                <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ asesores: [] })}>
+                  {filtros.asesores.length === 1
+                    ? (opcionesAsesor.find((o) => o.valor === filtros.asesores[0])?.texto ??
+                      filtros.asesores[0])
+                    : resumen("asesores", filtros.asesores.length)}
                 </Badge>
               </li>
             )}
@@ -149,43 +146,7 @@ export default function FiltrosGenerales({
             </button>
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <p className="mb-2 text-xs font-medium text-foreground/60">Periodo</p>
-              <MultiSelect
-                etiqueta="Periodo"
-                placeholder="Todos los periodos"
-                opciones={opcionesPeriodo}
-                valor={filtros.periodos}
-                onChange={(periodos) => setFiltros({ periodos })}
-              />
-            </div>
-
-            <div>
-              <p className="mb-2 text-xs font-medium text-foreground/60">Material</p>
-              <MultiSelect
-                etiqueta="Material"
-                placeholder="Todos los materiales"
-                opciones={opcionesMaterial}
-                valor={filtros.materiales.map(String)}
-                onChange={(materiales) =>
-                  setFiltros({ materiales: materiales.map(Number) })
-                }
-              />
-            </div>
-
-            <div>
-              <p className="mb-2 text-xs font-medium text-foreground/60">Sede</p>
-              <MultiSelect
-                etiqueta="Sede"
-                placeholder="Todas las sedes"
-                opciones={opcionesSede}
-                valor={filtros.sedes}
-                onChange={(sedes) => setFiltros({ sedes })}
-              />
-            </div>
-          </div>
-
+          <CamposFiltros opcionesSede={opcionesSede} opcionesAsesor={opcionesAsesor} />
         </div>
       )}
     </div>
@@ -213,5 +174,91 @@ function Badge({
       {children}
       <X aria-hidden="true" className="h-3.5 w-3.5 opacity-60" />
     </button>
+  );
+}
+
+/**
+ * Catálogos reales: se piden (sin filtros) solo cuando el panel está abierto;
+ * /ventas/sedes y /asesores/ranking devuelven las listas completas de la base.
+ */
+export function useCatalogos(activo: boolean) {
+  const { datos: sedesResp } = useApi<{ sedes: FilaSede[] }>(activo ? "/api/ventas/sedes" : null);
+  const { datos: asesoresResp } = useApi<{ ranking: FilaAsesor[] }>(
+    activo ? "/api/asesores/ranking?limite=100" : null,
+  );
+  const opcionesSede: Opcion[] = (sedesResp?.sedes ?? [])
+    .map((s) => ({ valor: s.sede, texto: s.sede }))
+    .sort((a, b) => a.texto.localeCompare(b.texto, "es"));
+  const opcionesAsesor: Opcion[] = (asesoresResp?.ranking ?? [])
+    .map((a) => ({ valor: a.codigo, texto: a.nombre, detalle: a.sede }))
+    .sort((a, b) => a.texto.localeCompare(b.texto, "es"));
+  return { opcionesSede, opcionesAsesor };
+}
+
+/** Periodo, sede y asesor: compartido por el popover de escritorio y el menú móvil. */
+export function CamposFiltros({
+  opcionesSede,
+  opcionesAsesor,
+}: {
+  opcionesSede: Opcion[];
+  opcionesAsesor: Opcion[];
+}) {
+  const [filtros, setFiltros] = useFiltros();
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="mb-2 text-xs font-medium text-foreground/60">Periodo</p>
+        <div className="flex items-center gap-2">
+          <select
+            aria-label="Desde"
+            value={filtros.desde ?? ""}
+            onChange={(e) => setFiltros({ desde: e.target.value || undefined })}
+            className="h-11 w-full rounded-full border border-foreground/15 bg-white/60 px-4 text-sm"
+          >
+            <option value="">Desde (inicio)</option>
+            {PERIODOS.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Hasta"
+            value={filtros.hasta ?? ""}
+            onChange={(e) => setFiltros({ hasta: e.target.value || undefined })}
+            className="h-11 w-full rounded-full border border-foreground/15 bg-white/60 px-4 text-sm"
+          >
+            <option value="">Hasta (fin)</option>
+            {PERIODOS.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium text-foreground/60">Sede</p>
+        <MultiSelect
+          etiqueta="Sede"
+          placeholder="Todas las sedes"
+          opciones={opcionesSede}
+          valor={filtros.sedes}
+          onChange={(sedes) => setFiltros({ sedes })}
+        />
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium text-foreground/60">Asesor</p>
+        <MultiSelect
+          etiqueta="Asesor"
+          placeholder="Todos los asesores"
+          opciones={opcionesAsesor}
+          valor={filtros.asesores}
+          onChange={(asesores) => setFiltros({ asesores })}
+        />
+      </div>
+    </div>
   );
 }
