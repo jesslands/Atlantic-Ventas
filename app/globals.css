@@ -207,6 +207,23 @@ main [tabindex] {
   animation: loader-exit 0.9s cubic-bezier(0.65, 0, 0.35, 1) forwards;
 }
 
+/* Móvil: el logo del preloader (w-40, 40px de alto) aterriza sobre el de la
+ * BarraMovil (28px de alto, centrado en una barra de 56px). */
+@keyframes loader-exit-movil {
+  to {
+    top: calc(env(safe-area-inset-top, 0px) + 0.875rem);
+    translate: -50% 0;
+    scale: 0.7;
+  }
+}
+
+@media (max-width: 639px) {
+  .loader-exit {
+    transform-origin: 50% 0;
+    animation-name: loader-exit-movil;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .logo-draw,
   .logo-draw .logo-fill,

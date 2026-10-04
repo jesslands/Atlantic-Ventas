@@ -4,10 +4,13 @@ import Wordmark from "./Wordmark";
 
 export default function Header() {
   return (
-    <header className="flex flex-col items-center gap-5 px-4 pt-[var(--logo-top)]">
-      <Wordmark className="h-auto w-40 sm:w-60" />
+    <header className="flex flex-col items-center gap-5 px-4 sm:pt-[var(--logo-top)]">
+      {/* En móvil el logo y los filtros viven en BarraMovil. */}
+      <Wordmark className="hidden h-auto w-60 sm:block" />
       <Nav />
-      <FiltrosGenerales />
+      <div className="hidden w-full sm:block">
+        <FiltrosGenerales />
+      </div>
     </header>
   );
 }

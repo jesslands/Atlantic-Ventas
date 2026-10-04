@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Bodoni_Moda, Poppins } from "next/font/google";
 import { Toaster } from "react-hot-toast";
+import BarraMovil from "./components/BarraMovil";
 import Header from "./components/Header";
 import Motion from "./components/Motion";
 import Preloader from "./components/Preloader";
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Motion>
           <Preloader />
           <ExcelUploadModal />
+          <BarraMovil />
           <Header />
           {children}
         </Motion>
