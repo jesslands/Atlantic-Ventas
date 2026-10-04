@@ -36,8 +36,11 @@ async function sembrar() {
     [CLIENTE_A, CLIENTE_B],
   );
   await sql(
-    `INSERT INTO materiales (cod_material, nombre) VALUES ($1, 'Material Uno'), ($2, 'Material Dos')
-     ON CONFLICT (cod_material) DO UPDATE SET nombre = EXCLUDED.nombre`,
+    `INSERT INTO materiales (cod_material, nombre, categoria, subcategoria, marca, calidad)
+     VALUES ($1, 'Material Uno', 'PRUEBACAT', 'SUBUNO', 'MARCA X', 'PREMIUM'),
+            ($2, 'Material Dos', 'PRUEBADOS', NULL, NULL, NULL)
+     ON CONFLICT (cod_material) DO UPDATE SET nombre = EXCLUDED.nombre, categoria = EXCLUDED.categoria,
+       subcategoria = EXCLUDED.subcategoria, marca = EXCLUDED.marca, calidad = EXCLUDED.calidad`,
     [MATERIAL_1, MATERIAL_2],
   );
   await sql(
@@ -289,7 +292,18 @@ test("GET /ventas/tendencia devuelve la serie real y proyecta hasta diciembre", 
 
 test("GET /ventas/tendencia con un solo mes no proyecta", async () => {
   const { cuerpo } = await pedir("/api/ventas/tendencia?desde=2090-01&hasta=2090-01");
-  assert.deepEqual(cuerpo.serie, [{ periodo: "2090-01", real: 1000, proyeccion: null }]);
+  assert.deepEqual(cuerpo.serie, [
+    {
+      periodo: "2090-01",
+      real: 1000,
+      proyeccion: null,
+      ventas: 1,
+      notas: 0,
+      montoNotas: 0,
+      clientes: 1,
+      ticketMediano: 1000,
+    },
+  ]);
 });
 
 test("GET /ventas/tendencia sobre el dataset real cubre los 6 periodos y proyecta a diciembre", async () => {
@@ -353,8 +367,132 @@ test("GET /clientes/[codigo] devuelve la ficha con historial y responde 404 si n
   assert.equal(cuerpo.primera_compra, "2090-01");
   assert.equal(cuerpo.ultima_compra, "2090-02");
   assert.equal(cuerpo.materiales.length, 1);
+  assert.equal(cuerpo.categorias.length, 1);
+  assert.equal(cuerpo.categorias[0].neto, 2500);
+
+  // Regresión: con filtro de sede/asesor la consulta de materiales fallaba con 500
+  // ("missing FROM-clause entry for table a") por no unir asesores.
+  for (const filtro of ["sede=PRUEBA", "asesor=ASE-901", "sede=OTRA"]) {
+    const { respuesta: filtrada, cuerpo: ficha } = await pedir(`/api/clientes/${CLIENTE_A}?${RANGO}&${filtro}`);
+    assert.equal(filtrada.status, 200, filtro);
+    assert.equal(ficha.materiales.length, filtro === "sede=OTRA" ? 0 : 1, filtro);
+  }
 
   const { respuesta: ausente } = await pedir("/api/clientes/999999999");
+  assert.equal(ausente.status, 404);
+});
+
+test("GET /clientes/[codigo]/compras pagina el historial linea a linea, busca y ordena", async () => {
+  const { respuesta, cuerpo } = await pedir(`/api/clientes/${CLIENTE_A}/compras?${RANGO}`);
+  assert.equal(respuesta.status, 200);
+  assert.equal(cuerpo.paginacion.total, 2);
+  assert.deepEqual(
+    cuerpo.compras.map((c) => [c.periodo, c.material, c.neto, c.nota_credito]),
+    [
+      ["2090-02", "Material Uno", 1500, false],
+      ["2090-01", "Material Uno", 1000, false],
+    ],
+    "por defecto, del mes más reciente al más antiguo",
+  );
+
+  const { cuerpo: asc } = await pedir(`/api/clientes/${CLIENTE_A}/compras?${RANGO}&orden=neto&dir=asc&porPagina=1`);
+  assert.equal(asc.compras.length, 1);
+  assert.equal(asc.compras[0].neto, 1000);
+  assert.equal(asc.paginacion.total, 2);
+
+  const { cuerpo: nota } = await pedir(`/api/clientes/${CLIENTE_B}/compras?${RANGO}`);
+  assert.equal(nota.compras[0].nota_credito, true);
+
+  const { cuerpo: busqueda } = await pedir(`/api/clientes/${CLIENTE_A}/compras?${RANGO}&q=dos`);
+  assert.equal(busqueda.compras.length, 0);
+
+  const { respuesta: orden } = await pedir(`/api/clientes/${CLIENTE_A}/compras?orden=__proto__`);
+  assert.equal(orden.status, 400);
+  const { respuesta: ausente } = await pedir("/api/clientes/999999999/compras");
+  assert.equal(ausente.status, 404);
+});
+
+test("GET /categorias reparte el neto por categoría y /categorias/[nombre] trae su ficha", async () => {
+  const { respuesta, cuerpo } = await pedir(`/api/categorias?${RANGO}`);
+  assert.equal(respuesta.status, 200);
+  assert.deepEqual(
+    cuerpo.categorias.map((c) => [c.categoria, c.neto, c.materiales]),
+    [
+      ["PRUEBACAT", 2500, 1],
+      ["PRUEBADOS", -300, 1],
+    ],
+  );
+
+  const { respuesta: r2, cuerpo: ficha } = await pedir(`/api/categorias/pruebacat?${RANGO}`);
+  assert.equal(r2.status, 200, "el nombre no distingue mayúsculas");
+  assert.equal(ficha.categoria, "PRUEBACAT");
+  assert.equal(ficha.neto, 2500);
+  assert.deepEqual(ficha.anios, [{ anio: "2090", neto: 2500, ventas: 2 }]);
+  assert.deepEqual(ficha.periodos.map((p) => [p.periodo, p.neto]), [["2090-01", 1000], ["2090-02", 1500]]);
+  assert.equal(ficha.top_clientes[0].codigo, CLIENTE_A);
+  assert.equal(ficha.top_materiales[0].codigo, MATERIAL_1);
+  assert.equal(ficha.subcategorias[0].subcategoria, "SUBUNO");
+
+  const { respuesta: ausente } = await pedir(`/api/categorias/NO%20EXISTE`);
+  assert.equal(ausente.status, 404);
+  const { respuesta: malformada } = await pedir(`/api/categorias/%25`);
+  assert.equal(malformada.status, 400);
+});
+
+test("GET /subcategorias/[nombre] trae su ficha con marcas, calidades y materiales", async () => {
+  const { respuesta, cuerpo } = await pedir(`/api/subcategorias/subuno?${RANGO}`);
+  assert.equal(respuesta.status, 200, "el nombre no distingue mayúsculas");
+  assert.equal(cuerpo.subcategoria, "SUBUNO");
+  assert.equal(cuerpo.categoria, "PRUEBACAT");
+  assert.equal(cuerpo.neto, 2500);
+  assert.deepEqual(cuerpo.anios, [{ anio: "2090", neto: 2500, ventas: 2 }]);
+  assert.deepEqual(cuerpo.marcas, [{ nombre: "MARCA X", neto: 2500, ventas: 2 }]);
+  assert.deepEqual(cuerpo.calidades, [{ nombre: "PREMIUM", neto: 2500, ventas: 2 }]);
+  assert.equal(cuerpo.top_materiales[0].codigo, MATERIAL_1);
+  assert.equal(cuerpo.top_clientes[0].codigo, CLIENTE_A);
+
+  assert.equal((await pedir(`/api/subcategorias/NO%20EXISTE`)).respuesta.status, 404);
+  assert.equal((await pedir(`/api/subcategorias/%25`)).respuesta.status, 400);
+});
+
+test("GET /materiales lista y busca; /materiales/[codigo] trae año, mes a mes y clientes", async () => {
+  const { cuerpo } = await pedir(`/api/materiales?${RANGO}&q=uno`);
+  assert.equal(cuerpo.paginacion.total, 1);
+  assert.equal(cuerpo.materiales[0].cod_material, MATERIAL_1);
+  assert.equal(cuerpo.materiales[0].clientes, 1);
+
+  const { cuerpo: porCategoria } = await pedir(`/api/materiales?${RANGO}&categoria=pruebados`);
+  assert.deepEqual(porCategoria.materiales.map((m) => m.cod_material), [MATERIAL_2]);
+
+  const { respuesta, cuerpo: ficha } = await pedir(`/api/materiales/${MATERIAL_1}?${RANGO}`);
+  assert.equal(respuesta.status, 200);
+  assert.equal(ficha.material.nombre, "Material Uno");
+  assert.equal(ficha.neto, 2500);
+  assert.equal(ficha.clientes, 1);
+  assert.equal(ficha.anios[0].neto, 2500);
+  assert.equal(ficha.periodos.length, 2);
+  assert.equal(ficha.top_clientes[0].codigo, CLIENTE_A);
+
+  const { cuerpo: filtrada } = await pedir(`/api/materiales/${MATERIAL_1}?${RANGO}&sede=OTRA`);
+  assert.equal(filtrada.neto, 0, "los filtros generales aplican");
+
+  assert.equal((await pedir("/api/materiales/999999999")).respuesta.status, 404);
+  assert.equal((await pedir("/api/materiales/abc")).respuesta.status, 400);
+  assert.equal((await pedir("/api/materiales?orden=__proto__")).respuesta.status, 400);
+});
+
+test("GET /asesores/[codigo] devuelve la ficha con historial y responde 404 si no existe", async () => {
+  const { respuesta, cuerpo } = await pedir(`/api/asesores/ase-901?${RANGO}`);
+  assert.equal(respuesta.status, 200, "el codigo no distingue mayusculas");
+  assert.equal(cuerpo.asesor.codigo, "ASE-901");
+  assert.equal(cuerpo.neto, 2200);
+  assert.equal(cuerpo.ventas, 3);
+  assert.equal(cuerpo.clientes.length, 2);
+
+  const { respuesta: invalido } = await pedir("/api/asesores/no-existe");
+  assert.equal(invalido.status, 400);
+
+  const { respuesta: ausente } = await pedir("/api/asesores/ASE-999");
   assert.equal(ausente.status, 404);
 });
 
@@ -387,14 +525,21 @@ test("el rate limit responde 429 + Retry-After al superar el límite", async () 
   assert.equal(cuerpo.error.codigo, "DEMASIADAS_SOLICITUDES");
 });
 
-test("GET /api/docs/openapi.json documenta los seis endpoints", async () => {
+test("GET /api/docs/openapi.json documenta los trece endpoints", async () => {
   const { respuesta, cuerpo } = await pedir("/api/docs/openapi.json");
   assert.equal(respuesta.status, 200);
   assert.deepEqual(Object.keys(cuerpo.paths).sort(), [
     "/asesores/ranking",
+    "/asesores/{codigo}",
+    "/categorias",
+    "/categorias/{nombre}",
     "/clientes",
     "/clientes/{codigo}",
+    "/clientes/{codigo}/compras",
     "/kpis",
+    "/materiales",
+    "/materiales/{codigo}",
+    "/subcategorias/{nombre}",
     "/ventas/sedes",
     "/ventas/tendencia",
   ]);
@@ -477,8 +622,15 @@ test("el JSON de cada endpoint cumple el contrato OpenAPI", async () => {
     { ruta: `/api/ventas/tendencia?${RANGO}`, path: "/ventas/tendencia" },
     { ruta: `/api/ventas/sedes?desde=2026-01&hasta=2026-06`, path: "/ventas/sedes" },
     { ruta: `/api/asesores/ranking?desde=2026-01&hasta=2026-06`, path: "/asesores/ranking" },
+    { ruta: `/api/asesores/ASE-001?desde=2026-01&hasta=2026-06`, path: "/asesores/{codigo}" },
     { ruta: `/api/clientes?porPagina=5&pagina=1`, path: "/clientes" },
     { ruta: `/api/clientes/${CLIENTE_A}`, path: "/clientes/{codigo}" },
+    { ruta: `/api/clientes/${CLIENTE_A}/compras?${RANGO}`, path: "/clientes/{codigo}/compras" },
+    { ruta: `/api/categorias?${RANGO}`, path: "/categorias" },
+    { ruta: `/api/categorias/pruebacat?${RANGO}`, path: "/categorias/{nombre}" },
+    { ruta: `/api/materiales?${RANGO}`, path: "/materiales" },
+    { ruta: `/api/materiales/${MATERIAL_1}?${RANGO}`, path: "/materiales/{codigo}" },
+    { ruta: `/api/subcategorias/subuno?${RANGO}`, path: "/subcategorias/{nombre}" },
   ];
 
   for (const { ruta, path } of casos) {

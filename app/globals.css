@@ -4,6 +4,22 @@
   --background: #f3e5d3;
   --foreground: #1f1f1f;
   --logo-top: 3rem;
+
+  /* Superficies del contenido: el crema de marca queda arriba (logo + nav) y
+   * baja a un papel más claro donde viven los datos. */
+  --plano: #f8f1e7;
+  --superficie: #fffbf5;
+  --tinta-2: #57534a;
+  --tinta-3: #6b6557;
+  --linea: #ece2d1;
+
+  /* Colores de datos, validados con el script de la skill dataviz contra
+   * --superficie (croma, separación para daltonismo y contraste >= 3:1). */
+  --dato: #66701f;
+  --acento: #b8862b;
+  --negativo: #9c4a6e;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 @media (min-width: 640px) {
@@ -17,14 +33,118 @@
   --color-foreground: var(--foreground);
   --color-brand: #57522c;
   --color-gold: #b5893f;
+  --color-plano: var(--plano);
+  --color-superficie: var(--superficie);
+  --color-tinta-2: var(--tinta-2);
+  --color-tinta-3: var(--tinta-3);
+  --color-linea: var(--linea);
+  --color-dato: var(--dato);
+  --color-acento: var(--acento);
+  --color-negativo: var(--negativo);
   --font-sans: var(--font-body);
   --font-serif: var(--font-display);
 }
 
+html {
+  scrollbar-color: #cdbfa6 transparent;
+}
+
 body {
-  background: var(--background);
+  background:
+    radial-gradient(140% 46rem at 50% -8rem, var(--background) 0 40%, transparent 100%) no-repeat,
+    var(--plano);
   color: var(--foreground);
   font-family: var(--font-body);
+}
+
+::selection {
+  background: rgb(102 112 31 / 0.22);
+  color: var(--foreground);
+}
+
+main :focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* El anillo solo aparece con teclado: al tocar o hacer clic (Safari pinta su
+ * contorno por defecto y Android su resaltado de toque) no se dibuja marco. */
+main :focus:not(:focus-visible) {
+  outline: none;
+}
+
+main button,
+main a,
+main [tabindex] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Feedback al presionar (filas, botones, barras clicables). */
+.presionable {
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 150ms ease;
+}
+
+.presionable:active {
+  transform: scale(0.985);
+}
+
+/* Barras HTML: crecen desde la línea base al montarse. */
+.barra {
+  transform-origin: left center;
+  transition: transform 600ms var(--ease-out);
+
+  @starting-style {
+    transform: scaleX(0);
+  }
+}
+
+.barra-izq {
+  transform-origin: right center;
+}
+
+/* Recarga por cambio de filtros: se conserva el último render atenuado en
+ * vez de volver al esqueleto (sin saltos de layout). */
+.refrescando {
+  opacity: 0.55;
+  transition: opacity 200ms ease;
+}
+
+/* Franja de chips con scroll horizontal: no salta de línea al crecer, y el
+ * desvanecido de los bordes avisa que hay más chips fuera de la vista. */
+.franja {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 24px), transparent 100%);
+}
+
+.franja::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes brillo {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.esqueleto {
+  background: linear-gradient(90deg, #efe6d8 0%, #f7f0e5 50%, #efe6d8 100%) 0 0 / 200% 100%;
+  animation: brillo 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barra,
+  .presionable {
+    transition: none;
+  }
+  .esqueleto {
+    animation: none;
+  }
 }
 
 @keyframes logo-draw {
@@ -100,6 +220,23 @@ body {
 
 .loader-exit {
   animation: loader-exit 0.9s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+/* Móvil: el logo del preloader (w-40, 40px de alto) aterriza sobre el de la
+ * BarraMovil (28px de alto, centrado en una barra de 56px). */
+@keyframes loader-exit-movil {
+  to {
+    top: calc(env(safe-area-inset-top, 0px) + 0.875rem);
+    translate: -50% 0;
+    scale: 0.7;
+  }
+}
+
+@media (max-width: 639px) {
+  .loader-exit {
+    transform-origin: 50% 0;
+    animation-name: loader-exit-movil;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

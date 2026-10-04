@@ -67,12 +67,19 @@ filtros opcionales:
 
 | Endpoint                | Devuelve                                                                              |
 |-------------------------|---------------------------------------------------------------------------------------|
-| `GET /kpis`             | Venta neta y bruta, transacciones, clientes activos, ticket promedio, notas crédito, % devoluciones y variación contra el mes anterior |
-| `GET /ventas/tendencia` | Serie mensual real + proyección por regresión lineal hasta diciembre                 |
+| `GET /kpis`             | Venta neta y bruta, transacciones, clientes activos, ticket promedio, notas crédito, ceros, atípicos (>$1M), % devoluciones y variación contra el mes anterior |
+| `GET /ventas/tendencia` | Serie mensual real (neto, ventas, notas, clientes, ticket mediano) + proyección por regresión lineal hasta diciembre |
 | `GET /ventas/sedes`     | Venta, clientes y participación por sede                                              |
 | `GET /asesores/ranking` | Ranking por venta neta con clientes, ticket medio y variación (`?limite=`, máx. 100)  |
-| `GET /clientes`         | Listado paginado con búsqueda (`?q=`), ordenamiento (`?orden=`, `?dir=`) y filtros     |
-| `GET /clientes/{codigo}`| Ficha del cliente: serie mensual, top 8 materiales y primera/última compra            |
+| `GET /asesores/{codigo}`| Ficha del asesor: serie mensual y top 10 clientes por neto                           |
+| `GET /clientes`         | Listado paginado con búsqueda (`?q=`), ordenamiento (`?orden=`, `?dir=`) y filtros (tope `pagina` 2.000) |
+| `GET /clientes/{codigo}`| Ficha del cliente: serie mensual, top 8 materiales, neto por categoría y primera/última compra |
+| `GET /clientes/{codigo}/compras` | Historial línea a línea (mes × material), paginado, con búsqueda por material y orden (`periodo`, `neto`, `material`) |
+| `GET /categorias`       | Neto, compras, clientes, materiales y participación por categoría                    |
+| `GET /categorias/{nombre}` | Ficha de la categoría: total del año, mes a mes, top 10 clientes, subcategorías y top 10 materiales |
+| `GET /subcategorias/{nombre}` | Ficha de la subcategoría: total del año, mes a mes, top 10 clientes, marcas, calidades y top 10 materiales |
+| `GET /materiales`       | Listado paginado de materiales con búsqueda (`?q=`), `?categoria=` y orden (`neto`, `ventas`, `clientes`, `nombre`, `codigo`) |
+| `GET /materiales/{codigo}` | Ficha del material: atributos, total del año, mes a mes y top 10 clientes          |
 
 Ejemplos:
 
@@ -278,12 +285,16 @@ Cobertura por endpoint (integración):
 - `/ventas/sedes` — las 7 sedes con venta suman 100% de participación, filtro por asesor.
 - `/asesores/ranking` — orden descendente por venta y variación calculada.
 - `/clientes` — paginación, búsqueda parcial, orden por nombre, `400` por orden desconocido.
-- `/clientes/{codigo}` — ficha con historial y materiales, `404`, `400` por código no numérico.
+- `/clientes/{codigo}` — ficha con historial, materiales y categorías, `404`, `400` por código no numérico, sin `500` con filtro de sede/asesor.
+- `/clientes/{codigo}/compras` — historial línea a línea, orden, búsqueda, nota crédito, `400` por orden inválido, `404`.
+- `/categorias` y `/categorias/{nombre}` — reparto por categoría, ficha con año y mes a mes, `404`, `400` por nombre malformado.
+- `/subcategorias/{nombre}` — ficha con marcas, calidades y materiales, `404`, `400` por nombre malformado.
+- `/materiales` y `/materiales/{codigo}` — búsqueda, filtro por categoría, ficha con clientes, filtros generales, `404`/`400`.
 - Seguridad — cabeceras de Helmet, `X-RateLimit-Limit`, `429 + Retry-After` al exceder.
 - Contrato — el JSON de cada endpoint cumple el OpenAPI documentado.
 - Schema — campos VARCHAR acotados, cod_asesor fuera de patrón rechazado.
 - Migraciones — el runner es idempotente.
-- Documentación — `/api/docs/openapi.json` expone los seis endpoints.
+- Documentación — `/api/docs/openapi.json` expone los trece endpoints.
 - Idempotencia — doble `INSERT` del mismo grano no duplica filas.
 
 ---
@@ -297,15 +308,23 @@ app/
     ventas/tendencia/route.ts     GET  /ventas/tendencia
     ventas/sedes/route.ts         GET  /ventas/sedes
     asesores/ranking/route.ts     GET  /asesores/ranking
+    asesores/[codigo]/route.ts    GET  /asesores/{codigo}
     clientes/route.ts             GET  /clientes
     clientes/[codigo]/route.ts    GET  /clientes/{codigo}
+    clientes/[codigo]/compras/route.ts GET /clientes/{codigo}/compras
+    categorias/route.ts           GET  /categorias
+    categorias/[nombre]/route.ts  GET  /categorias/{nombre}
+    subcategorias/[nombre]/route.ts GET /subcategorias/{nombre}
+    materiales/route.ts           GET  /materiales
+    materiales/[codigo]/route.ts  GET  /materiales/{codigo}
     docs/route.ts                 GET  /api/docs            (Swagger UI)
     docs/openapi.json/route.ts    GET  /api/docs/openapi.json
   lib/api/
     analitica.ts                  regresión lineal y variación (funciones puras)
     repos/ventas.ts               queries de /kpis, /ventas/*
-    repos/clientes.ts             queries de /clientes, /clientes/{codigo}
-    repos/asesores.ts             query de /asesores/ranking
+    repos/clientes.ts             queries de /clientes, /clientes/{codigo}, /clientes/{codigo}/compras
+    repos/materiales.ts           queries de /categorias/*, /subcategorias/* y /materiales/*
+    repos/asesores.ts             queries de /asesores/ranking y /asesores/{codigo}
     db.ts                         pool de `pg`
     filtros.ts                    validación de la query string
     http.ts                       errores 400/404/500 y envoltorio de handlers
@@ -325,6 +344,17 @@ docker-compose.yml                Postgres + Next en producción
 
 > Ver también: `docs/arquitectura.md`, `docs/seguridad.md`, `docs/decisiones.md`.
 
-> **Al integrar la rama `UI`:** sus helpers `proyectar`/`variacion` de
-> `app/lib/analytics.ts` son equivalentes a los de `app/lib/api/analitica.ts`. Al unirlas
-> hay que dejar una sola copia (re-exportar) para no mantener el mismo cálculo en dos sitios.
+> **Frontend conectado a la API:** el dashboard (`app/components/dashboard/`) ya no
+> calcula nada localmente a partir de un dataset generado en el navegador — pide
+> `/api/kpis`, `/api/ventas/tendencia`, `/api/ventas/sedes`, `/api/asesores/ranking`,
+> `/api/asesores/{codigo}`, `/api/clientes` y `/api/clientes/{codigo}` directamente
+> (`app/lib/apiClient.ts`). La única pieza que sigue viviendo en los dos lados es
+> `variacion()`, una fórmula de una línea: se deja duplicada a propósito porque el
+> cliente no puede importar `app/lib/api/*` (ese código asume runtime de servidor).
+> `proyectar()` ya no tiene copia en el cliente: `/ventas/tendencia` devuelve la
+> proyección ya calculada.
+>
+> El filtro de **material** del dashboard de demostración no tiene equivalente hoy:
+> ningún endpoint de resumen filtra por material (solo `/clientes/{codigo}` devuelve
+> el top 8 de materiales de un cliente puntual), así que se quitó del selector de
+> filtros en vez de dejar un control que no hace nada contra datos reales.

@@ -6,17 +6,22 @@ Mapa de responsabilidades por archivo. La idea es que cada archivo cambie por **
 app/
 ├── kpis/route.ts                 -> delega en lib/api/, no contiene lógica
 ├── ventas/{tendencia,sedes}/    -> idem
-├── asesores/ranking/             -> idem
+├── asesores/{ranking,[codigo]}/  -> idem
 ├── clientes/route.ts             -> idem
 ├── clientes/[codigo]/route.ts    -> idem
 └── lib/api/
     ├── analitica.ts              funciones puras (regresión, variación)
-    ├── consultas.ts              todo el SQL parametrizado
+    ├── repos/ventas.ts           SQL de /kpis, /ventas/*
+    ├── repos/clientes.ts         SQL de /clientes, /clientes/{codigo}, /clientes/{codigo}/compras
+    ├── repos/materiales.ts       SQL de /categorias, /categorias/{nombre}, /subcategorias/{nombre}, /materiales, /materiales/{codigo}
+    ├── repos/asesores.ts         SQL de /asesores/ranking, /asesores/{codigo}
     ├── db.ts                     pool de pg + parsers de tipos
     ├── filtros.ts                validación de la query string
     ├── http.ts                   ApiError + wrapper `manejar`
     └── openapi.ts                contrato OpenAPI 3.1
-proxy.ts                          Helmet + rate limit (matcher: /api/:path*)
+proxy.ts                          Helmet + rate limit (matcher: toda la app menos
+                                   assets de _next; el limite de peticiones solo
+                                   cuenta en /api)
 db/schema.sql                     esquema + índices (idempotente)
 pipeline/limpieza.mjs             Excel sucio -> Postgres (upsert)
 tests/unit.test.mjs               funciones puras y parsers
@@ -33,7 +38,7 @@ tests/api.test.mjs                integración contra next start + Postgres
 ## Decisiones de diseño
 
 - **Una sola fuente de verdad para el orden de los clientes**: la whitelist `ORDENES_CLIENTE` mapea nombres de API a columnas SQL. Sin concatenación de strings del usuario en el `ORDER BY`.
-- **Series y agregados en `/kpis` lanzan en paralelo**: `Promise.all([resumen, serie])` en `consultas.ts:81` ahorra medio ida y vuelta secuencial.
+- **Series y agregados en `/kpis` lanzan en paralelo**: `Promise.all([resumen, serie])` en `repos/ventas.ts` ahorra medio ida y vuelta secuencial.
 - **Joins solo cuando hacen falta**: `desdeVentas(filtros, { cliente, asesor })` agrega `JOIN clientes`/`JOIN asesor` solo cuando el endpoint los necesita. Sobre 446 k filas, cada join cuenta.
 - **DATE, no VARCHAR para periodos**: `periodo` es `DATE` con `CHECK EXTRACT(DAY FROM periodo) = 1`. Así no hay deriva por locale ni por zona horaria.
 - **Notas crédito no se descartan**: columna generada `es_nota_credito`. Se reportan y se conservan, como documenta `investigacion/DATA_QUALITY.md`.

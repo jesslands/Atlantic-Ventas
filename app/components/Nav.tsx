@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { BarChart3, Headset, UploadCloud, Users } from "lucide-react";
+import { BarChart3, Headset, Package, UploadCloud, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -13,6 +13,7 @@ export const NAV = [
   { label: "Resumen", href: "/", icon: BarChart3 },
   { label: "Asesores", href: "/asesores", icon: Headset },
   { label: "Clientes", href: "/clientes", icon: Users },
+  { label: "Materiales", href: "/materiales", icon: Package },
 ];
 
 const SPRING = { type: "spring", stiffness: 400, damping: 32 } as const;
@@ -29,7 +30,7 @@ export default function Nav() {
 
   const items = (scope: "dock" | "top", esDock: boolean) =>
     NAV.map((item, index) => {
-      const isActive = pathname === item.href;
+      const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
       const isDock = esDock;
       const Icon = item.icon;
 

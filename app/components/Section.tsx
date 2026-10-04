@@ -10,13 +10,11 @@ export default function Section({
   children?: ReactNode;
 }) {
   return (
-    <main className="mx-auto mt-10 w-full max-w-7xl flex-1 px-4 pb-28 sm:pb-10">
-      <h1 className="font-montserrat text-[clamp(1.75rem,4vw,2.75rem)] leading-[1.1] font-bold tracking-tight uppercase">
+    <main className="mx-auto mt-8 w-full max-w-7xl flex-1 px-4 pb-32 sm:mt-12 sm:px-6 sm:pb-16">
+      <h1 className="text-[1.6rem] leading-tight font-semibold tracking-[-0.02em] text-balance sm:text-[2rem]">
         {title}
       </h1>
-      <p className="mt-3 max-w-3xl text-[0.95rem] leading-7 text-foreground/70">
-        {description}
-      </p>
+      <p className="mt-2 max-w-[65ch] text-sm leading-6 text-tinta-2 sm:text-[0.95rem]">{description}</p>
       {children}
     </main>
   );
