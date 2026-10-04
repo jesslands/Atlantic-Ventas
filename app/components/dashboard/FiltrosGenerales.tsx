@@ -1,15 +1,20 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, X } from "lucide-react";
-import { useState } from "react";
-import { useApi, type FilaAsesor, type FilaSede } from "../../lib/apiClient";
-import { activos, PERIODOS, useFiltros } from "../../lib/filtros";
-import MultiSelect, { type Opcion } from "./MultiSelect";
+import { useEffect, useRef, useState } from "react";
+import { activos, useFiltros } from "../../lib/filtros";
+import EditorFiltros, { textoPeriodo, useCatalogos } from "../filtros/EditorFiltros";
 import { usePopover } from "./usePopover";
 
 const resumen = (texto: string, cantidad: number) =>
   cantidad === 1 ? texto : `${cantidad} ${texto}`;
 
+/**
+ * Filtros de escritorio: botón "Filtros", chips de lo activo y un popover
+ * anclado con el mismo editor que usa el panel móvil (borrador + Aplicar).
+ * `compacto`/`oscuro` es la versión de la barra fija que aparece al hacer scroll.
+ */
 export default function FiltrosGenerales({
   oscuro = false,
   compacto = false,
@@ -20,9 +25,15 @@ export default function FiltrosGenerales({
   const [filtros, setFiltros, limpiar] = useFiltros();
   const [abierto, setAbierto] = useState(false);
   const contenedor = usePopover<HTMLDivElement>(abierto, setAbierto);
+  const popover = useRef<HTMLDivElement>(null);
   const cantidad = activos(filtros);
 
-  const { opcionesSede, opcionesAsesor } = useCatalogos(abierto);
+  // El nombre del asesor solo hace falta para su chip cuando hay uno elegido.
+  const { opcionesAsesor } = useCatalogos(filtros.asesores.length === 1);
+
+  useEffect(() => {
+    if (abierto) popover.current?.querySelector<HTMLElement>("[data-autofoco]")?.focus();
+  }, [abierto]);
 
   const cabecera = oscuro
     ? "text-background/85 hover:text-background"
@@ -39,11 +50,7 @@ export default function FiltrosGenerales({
   const altoContador = compacto ? "h-4 min-w-4 px-1 text-[0.6rem]" : "h-5 min-w-5 px-1.5 text-[0.7rem]";
   const icono = compacto ? "h-3.5 w-3.5" : "h-4 w-4";
 
-
-  const rangoPeriodo =
-    filtros.desde || filtros.hasta
-      ? `${filtros.desde ?? PERIODOS[0]} → ${filtros.hasta ?? PERIODOS.at(-1)}`
-      : null;
+  const hayPeriodo = Boolean(filtros.desde || filtros.hasta);
 
   return (
     <div className={`relative w-full ${compacto ? "flex items-center" : ""}`} ref={contenedor}>
@@ -67,31 +74,23 @@ export default function FiltrosGenerales({
           )}
           <ChevronDown
             aria-hidden="true"
-            className={`${icono} transition-transform duration-200 ${
-              abierto ? "rotate-180" : ""
-            }`}
+            className={`${icono} transition-transform duration-200 ${abierto ? "rotate-180" : ""}`}
           />
         </button>
 
         {cantidad > 0 && (
           <ul aria-label="Filtros activos" className="franja min-w-0 items-center gap-2 pr-3">
-            {rangoPeriodo && (
+            {hayPeriodo && (
               <li className="shrink-0">
-                <Badge
-                  alto={altoChip}
-                  tono={chip}
-                  onClick={() => setFiltros({ desde: undefined, hasta: undefined })}
-                >
-                  {rangoPeriodo}
+                <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ desde: undefined, hasta: undefined })}>
+                  {textoPeriodo(filtros.desde, filtros.hasta)}
                 </Badge>
               </li>
             )}
             {filtros.sedes.length > 0 && (
               <li className="shrink-0">
                 <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ sedes: [] })}>
-                  {filtros.sedes.length === 1
-                    ? filtros.sedes[0]
-                    : resumen("sedes", filtros.sedes.length)}
+                  {filtros.sedes.length === 1 ? filtros.sedes[0] : resumen("sedes", filtros.sedes.length)}
                 </Badge>
               </li>
             )}
@@ -99,8 +98,7 @@ export default function FiltrosGenerales({
               <li className="shrink-0">
                 <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ asesores: [] })}>
                   {filtros.asesores.length === 1
-                    ? (opcionesAsesor.find((o) => o.valor === filtros.asesores[0])?.texto ??
-                      filtros.asesores[0])
+                    ? (opcionesAsesor.find((o) => o.valor === filtros.asesores[0])?.texto ?? filtros.asesores[0])
                     : resumen("asesores", filtros.asesores.length)}
                 </Badge>
               </li>
@@ -119,34 +117,40 @@ export default function FiltrosGenerales({
         )}
       </div>
 
-      {abierto && (
-        <div
-          role="dialog"
-          aria-label="Filtros generales"
-          className="absolute top-full right-0 left-0 z-50 mt-2 rounded-2xl border border-foreground/10 bg-background p-5 shadow-[0_10px_30px_rgba(0,0,0,0.15)] sm:right-auto sm:left-0 sm:w-[26rem]"
-        >
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <h2 className="font-montserrat text-sm font-bold tracking-wide uppercase">
-                Filtros generales
-              </h2>
-              <p className="mt-1 text-xs text-foreground/60">
-                Se aplican en Resumen, Asesores y Clientes.
-              </p>
+      <AnimatePresence>
+        {abierto && (
+          <motion.div
+            ref={popover}
+            role="dialog"
+            aria-labelledby="titulo-filtros-escritorio"
+            initial={{ opacity: 0, scale: 0.97, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.1 } }}
+            transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
+            style={{ transformOrigin: "top left" }}
+            className="absolute top-full left-0 z-50 mt-2 flex max-h-[min(40rem,calc(100dvh-8rem))] w-[26rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl bg-plano text-foreground shadow-[0_1px_2px_rgba(87,82,44,0.08),0_24px_48px_-16px_rgba(31,31,31,0.35)] ring-1 ring-linea"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-4 px-4 pt-4 pb-2">
+              <div>
+                <h2 id="titulo-filtros-escritorio" className="text-[0.95rem] font-semibold">
+                  Filtros
+                </h2>
+                <p className="mt-0.5 text-xs text-tinta-3">Se aplican en todas las vistas.</p>
+              </div>
+              <button
+                data-autofoco
+                type="button"
+                onClick={() => setAbierto(false)}
+                aria-label="Cerrar sin aplicar"
+                className="-mt-1 -mr-1 flex h-9 w-9 items-center justify-center rounded-full text-tinta-3 transition-colors hover:bg-foreground/10 hover:text-foreground"
+              >
+                <X aria-hidden="true" className="h-5 w-5" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setAbierto(false)}
-              aria-label="Cerrar filtros"
-              className="-mt-1 -mr-1 flex h-9 w-9 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10"
-            >
-              <X aria-hidden="true" className="h-5 w-5" />
-            </button>
-          </div>
-
-          <CamposFiltros opcionesSede={opcionesSede} opcionesAsesor={opcionesAsesor} />
-        </div>
-      )}
+            <EditorFiltros alCerrar={() => setAbierto(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -167,96 +171,10 @@ function Badge({
       type="button"
       onClick={onClick}
       title="Quitar filtro"
-      className={`inline-flex shrink-0 items-center gap-0.5 rounded-full font-medium transition-colors ${alto} ${tono}`}
+      className={`inline-flex shrink-0 items-center gap-0.5 rounded-full font-medium whitespace-nowrap transition-colors ${alto} ${tono}`}
     >
       {children}
       <X aria-hidden="true" className="h-3.5 w-3.5 opacity-60" />
     </button>
-  );
-}
-
-/**
- * Catálogos reales: se piden (sin filtros) solo cuando el panel está abierto;
- * /ventas/sedes y /asesores/ranking devuelven las listas completas de la base.
- */
-export function useCatalogos(activo: boolean) {
-  const { datos: sedesResp } = useApi<{ sedes: FilaSede[] }>(activo ? "/api/ventas/sedes" : null);
-  const { datos: asesoresResp } = useApi<{ ranking: FilaAsesor[] }>(
-    activo ? "/api/asesores/ranking?limite=100" : null,
-  );
-  const opcionesSede: Opcion[] = (sedesResp?.sedes ?? [])
-    .map((s) => ({ valor: s.sede, texto: s.sede }))
-    .sort((a, b) => a.texto.localeCompare(b.texto, "es"));
-  const opcionesAsesor: Opcion[] = (asesoresResp?.ranking ?? [])
-    .map((a) => ({ valor: a.codigo, texto: a.nombre, detalle: a.sede }))
-    .sort((a, b) => a.texto.localeCompare(b.texto, "es"));
-  return { opcionesSede, opcionesAsesor };
-}
-
-/** Periodo, sede y asesor: compartido por el popover de escritorio y el menú móvil. */
-export function CamposFiltros({
-  opcionesSede,
-  opcionesAsesor,
-}: {
-  opcionesSede: Opcion[];
-  opcionesAsesor: Opcion[];
-}) {
-  const [filtros, setFiltros] = useFiltros();
-  return (
-    <div className="space-y-4">
-      <div>
-        <p className="mb-2 text-xs font-medium text-foreground/60">Periodo</p>
-        <div className="flex items-center gap-2">
-          <select
-            aria-label="Desde"
-            value={filtros.desde ?? ""}
-            onChange={(e) => setFiltros({ desde: e.target.value || undefined })}
-            className="h-11 w-full rounded-full border border-foreground/15 bg-white/60 px-4 text-sm"
-          >
-            <option value="">Desde (inicio)</option>
-            {PERIODOS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Hasta"
-            value={filtros.hasta ?? ""}
-            onChange={(e) => setFiltros({ hasta: e.target.value || undefined })}
-            className="h-11 w-full rounded-full border border-foreground/15 bg-white/60 px-4 text-sm"
-          >
-            <option value="">Hasta (fin)</option>
-            {PERIODOS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs font-medium text-foreground/60">Sede</p>
-        <MultiSelect
-          etiqueta="Sede"
-          placeholder="Todas las sedes"
-          opciones={opcionesSede}
-          valor={filtros.sedes}
-          onChange={(sedes) => setFiltros({ sedes })}
-        />
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs font-medium text-foreground/60">Asesor</p>
-        <MultiSelect
-          etiqueta="Asesor"
-          placeholder="Todos los asesores"
-          opciones={opcionesAsesor}
-          valor={filtros.asesores}
-          onChange={(asesores) => setFiltros({ asesores })}
-        />
-      </div>
-    </div>
   );
 }
