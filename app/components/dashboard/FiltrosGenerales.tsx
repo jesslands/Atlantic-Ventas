@@ -47,9 +47,7 @@ export default function FiltrosGenerales({
 
   return (
     <div className={`relative w-full ${compacto ? "flex items-center" : ""}`} ref={contenedor}>
-      <div className={`flex items-center gap-2 ${compacto
-              ? "flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-              : "flex-wrap"}`}>
+      <div className="flex min-w-0 flex-nowrap items-center gap-2">
         <button
           type="button"
           onClick={() => setAbierto((v) => !v)}
@@ -76,9 +74,9 @@ export default function FiltrosGenerales({
         </button>
 
         {cantidad > 0 && (
-          <ul aria-label="Filtros activos" className="flex flex-wrap items-center gap-2">
+          <ul aria-label="Filtros activos" className="franja min-w-0 items-center gap-2 pr-3">
             {rangoPeriodo && (
-              <li>
+              <li className="shrink-0">
                 <Badge
                   alto={altoChip}
                   tono={chip}
@@ -89,7 +87,7 @@ export default function FiltrosGenerales({
               </li>
             )}
             {filtros.sedes.length > 0 && (
-              <li>
+              <li className="shrink-0">
                 <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ sedes: [] })}>
                   {filtros.sedes.length === 1
                     ? filtros.sedes[0]
@@ -98,7 +96,7 @@ export default function FiltrosGenerales({
               </li>
             )}
             {filtros.asesores.length > 0 && (
-              <li>
+              <li className="shrink-0">
                 <Badge alto={altoChip} tono={chip} onClick={() => setFiltros({ asesores: [] })}>
                   {filtros.asesores.length === 1
                     ? (opcionesAsesor.find((o) => o.valor === filtros.asesores[0])?.texto ??

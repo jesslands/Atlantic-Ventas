@@ -111,6 +111,21 @@ main [tabindex] {
   transition: opacity 200ms ease;
 }
 
+/* Franja de chips con scroll horizontal: no salta de línea al crecer, y el
+ * desvanecido de los bordes avisa que hay más chips fuera de la vista. */
+.franja {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to right, transparent 0, #000 12px, #000 calc(100% - 24px), transparent 100%);
+}
+
+.franja::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes brillo {
   to {
     background-position: -200% 0;
